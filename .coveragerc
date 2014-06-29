@@ -1,0 +1,9 @@
+[run]
+branch = True
+
+# see http://nedbatchelder.com/code/coverage/config.html
+# specifying source files http://nedbatchelder.com/code/coverage/source.html
+include = */nxctmctree/*
+omit =
+	runtests.py
+	*/nxctmctree/tests/*
