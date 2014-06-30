@@ -35,6 +35,10 @@ def expand_Q(Q):
 
 
 def create_rate_matrix(nt_probs, kappa):
+    """
+    Create an HKY rate matrix normalized to expected rate of 1.0.
+
+    """
     nts = 'ACGT'
     nt_distn = dict(zip(nts, nt_probs))
     Q = nx.DiGraph()
@@ -43,6 +47,11 @@ def create_rate_matrix(nt_probs, kappa):
         if {sa, sb} in ({'A', 'G'}, {'C', 'T'}):
             rate *= kappa
         Q.add_edge(sa, sb, weight=rate)
+    state_to_rate = Q.degree(weight='weight')
+    expected_rate = sum(nt_distn[s] * state_to_rate[s] for s in nts)
+    for sa in Q:
+        for sb in Q[sa]:
+            Q[sa][sb]['weight'] /= expected_rate
     return Q, nt_distn
 
 
@@ -105,7 +114,7 @@ def main():
     # Pick out the leaf states, and get a sample distribution over
     # leaf state patterns.
     pattern_to_count = defaultdict(int)
-    nsamples_gillespie = 1000
+    nsamples_gillespie = 10000
     for i in range(nsamples_gillespie):
         node_to_state = get_incomplete_gillespie_sample(
                 T, root, root_prior_distn,
@@ -117,6 +126,13 @@ def main():
     # Report the patterns.
     for pattern, count in sorted(pattern_to_count.items()):
         print(pattern, ':', count)
+
+    # TODO compute max likelihood estimates
+    # using the actual gillespie sampled trajectories
+
+    # TODO compute max likelihood estimates
+    # using EM with conditionally sampled histories using Rao-Teh.
+
 
 
 if __name__ == '__main__':
