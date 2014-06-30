@@ -21,7 +21,8 @@ import numpy as np
 import networkx as nx
 
 import nxctmctree
-from nxctmctree.gillespie import get_incomplete_gillespie_sample
+from nxctmctree.gillespie import (
+        get_gillespie_trajectory, get_incomplete_gillespie_sample)
 
 
 def expand_Q(Q):
@@ -116,12 +117,16 @@ def main():
     pattern_to_count = defaultdict(int)
     nsamples_gillespie = 10000
     for i in range(nsamples_gillespie):
-        node_to_state = get_incomplete_gillespie_sample(
-                T, root, root_prior_distn,
+        track = get_gillespie_trajectory(T, root, root_prior_distn,
                 edge_to_rate, edge_to_blen,
                 edge_to_state_to_rate, edge_to_state_to_distn)
-        pattern = tuple(node_to_state[v] for v in leaves)
+        #node_to_state = get_incomplete_gillespie_sample(
+                #T, root, root_prior_distn,
+                #edge_to_rate, edge_to_blen,
+                #edge_to_state_to_rate, edge_to_state_to_distn)
+        pattern = tuple(track.history[v] for v in leaves)
         pattern_to_count[pattern] += 1
+
 
     # Report the patterns.
     for pattern, count in sorted(pattern_to_count.items()):
