@@ -55,7 +55,7 @@ def get_incomplete_gillespie_sample(T, root, root_prior_distn,
 
     """
     # Sample the state at the root.
-    node_to_state = {root, dict_random_choice(root_prior_distn)}
+    node_to_state = {root : dict_random_choice(root_prior_distn)}
 
     # Sample states along edges, recording only the final state.
     for edge in nx.bfs_edges(T, root):
