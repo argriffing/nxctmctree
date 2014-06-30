@@ -74,6 +74,11 @@ def unpack_params(edges, log_params):
     return edge_rates, Q, nt_distn, penalty
 
 
+class CompleteTrackSummary(object):
+    def __init__(self):
+        pass
+
+
 def main():
 
     # Define an edge ordering.
@@ -126,6 +131,13 @@ def main():
                 #edge_to_state_to_rate, edge_to_state_to_distn)
         pattern = tuple(track.history[v] for v in leaves)
         pattern_to_count[pattern] += 1
+
+        # Record more summary statistics per track.
+        # Include:
+        #  - state at the root (distribution at the root)
+        # And for each branch:
+        #  - counts of each transition type
+        #  - time spent in each state
 
 
     # Report the patterns.
