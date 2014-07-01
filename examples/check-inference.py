@@ -74,8 +74,27 @@ def unpack_params(edges, log_params):
     return edge_rates, Q, nt_distn, penalty
 
 
-class CompleteTrackSummary(object):
+class FullTrackSummary(object):
+    """
+    Record everything possibly relevant for EM.
+
+    These will be sufficient statistics
+    but probably not minimial sufficient statistics.
+
+    """
     def __init__(self):
+        # Record more summary statistics per track.
+        # Include:
+        #  - state at the root (distribution at the root)
+        # And for each edge:
+        #  - counts of each transition type
+        #  - time spent in each state
+        self.root_state_to_count = {}
+        self.edge_to_transition_to_count = {}
+        self.edge_to_state_to_time = {}
+        #
+
+    def on_track(self, T, root, track):
         pass
 
 
@@ -135,9 +154,11 @@ def main():
         # Record more summary statistics per track.
         # Include:
         #  - state at the root (distribution at the root)
-        # And for each branch:
+        # And for each edge:
         #  - counts of each transition type
         #  - time spent in each state
+
+        #for 
 
 
     # Report the patterns.
