@@ -28,7 +28,7 @@ from nxctmctree.gillespie import (get_node_to_tm,
 
 
 def expand_Q(Q):
-    state_to_rate = Q.degree(weight='weight')
+    state_to_rate = Q.out_degree(weight='weight')
     state_to_distn = dict()
     for sa in Q:
         rate = state_to_rate[sa]
@@ -50,7 +50,7 @@ def create_rate_matrix(nt_probs, kappa):
         if {sa, sb} in ({'A', 'G'}, {'C', 'T'}):
             rate *= kappa
         Q.add_edge(sa, sb, weight=rate)
-    state_to_rate = Q.degree(weight='weight')
+    state_to_rate = Q.out_degree(weight='weight')
     expected_rate = sum(nt_distn[s] * state_to_rate[s] for s in nts)
     for sa in Q:
         for sb in Q[sa]:
@@ -119,7 +119,7 @@ def get_trajectory_log_likelihood(T, root,
             raise Exception('found an edge with no observed dwell times')
         for state, duration in info.items():
             if duration:
-                rate = edge_rate * Q.degree(state, weight='weight')
+                rate = edge_rate * Q.out_degree(state, weight='weight')
                 dwell_ll -= rate * duration
     #print(root_ll, trans_ll, dwell_ll)
     log_likelihood = root_ll + trans_ll + dwell_ll
@@ -221,6 +221,12 @@ def main():
     edge_to_state_to_rate = dict((e, state_to_rate) for e in edges)
     edge_to_state_to_distn = dict((e, state_to_distn) for e in edges)
     node_to_tm = get_node_to_tm(T, root, edge_to_blen)
+
+    print('state_to_rate:')
+    print(state_to_rate)
+    print('state_to_distn:')
+    print(state_to_distn)
+    print()
 
     # Get some gillespie samples.
     # Pick out the leaf states, and get a sample distribution over
