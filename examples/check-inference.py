@@ -55,6 +55,18 @@ def create_rate_matrix(nt_probs, kappa):
     for sa in Q:
         for sb in Q[sa]:
             Q[sa][sb]['weight'] /= expected_rate
+
+    #print('flux matrix:')
+    #for sa in nts:
+        #arr = []
+        #for sb in nts:
+            #if sb in Q[sa]:
+                #arr.append(nt_distn[sa] * Q[sa][sb]['weight'])
+            #else:
+                #arr.append(0)
+        #print(arr)
+    #print()
+
     return Q, nt_distn
 
 
@@ -171,7 +183,7 @@ class FullTrackSummary(object):
 
 def main():
 
-    random.seed(2345)
+    random.seed(23456)
 
     # Define an edge ordering.
     edges = [
@@ -188,10 +200,11 @@ def main():
     root = 'N0'
     leaves = ('N2', 'N3', 'N4', 'N5')
 
-    edges = T.edges()
-
     # Define edge-specific rate scaling factors.
-    edge_rates = np.array([0.1, 0.2, 0.3, 0.4, 0.5])
+    #edge_rates = np.array([0.01, 0.02, 0.03, 0.04, 0.05])
+    #edge_rates = np.array([0.1, 0.2, 0.3, 0.4, 0.5])
+    #edge_rates = np.array([1.1, 1.2, 1.3, 1.4, 1.5])
+    edge_rates = np.array([1, 2, 3, 4, 5])
 
     # Define HKY parameter values.
     nt_probs = np.array([0.1, 0.2, 0.3, 0.4])
@@ -214,20 +227,31 @@ def main():
     # leaf state patterns.
     full_track_summary = FullTrackSummary()
     pattern_to_count = defaultdict(int)
-    nsamples_gillespie = 1000000
+    nsamples_gillespie = 10000
+    node_to_state_to_count = dict((v, defaultdict(int)) for v in T)
     for i in range(nsamples_gillespie):
         track = get_gillespie_trajectory(T, root, root_prior_distn,
                 edge_to_rate, edge_to_blen,
                 edge_to_state_to_rate, edge_to_state_to_distn)
         full_track_summary.on_track(T, root, node_to_tm, track)
+        for v, state in track.history.items():
+            node_to_state_to_count[v][state] += 1
         pattern = tuple(track.history[v] for v in leaves)
         pattern_to_count[pattern] += 1
-
 
     # Report the patterns.
     print('sampled patterns:')
     for pattern, count in sorted(pattern_to_count.items()):
         print(pattern, ':', count)
+    print()
+
+    # Report state counts at nodes.
+    print('state counts at nodes:')
+    for v in T:
+        state_to_count = node_to_state_to_count[v]
+        print('node:', v)
+        for state in 'ACGT':
+            print('  state:', state, 'count:', state_to_count[state])
     print()
 
     # Report some summary of the trajectories.
