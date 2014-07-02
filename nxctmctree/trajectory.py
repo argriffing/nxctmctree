@@ -16,6 +16,33 @@ import warnings
 import networkx as nx
 
 
+#FIXME copypasted from nxblink.util
+def get_node_to_tm(T, root, edge_to_blen):
+    """
+    Use branch lengths to compute the distance from each node to the root.
+
+    Parameters
+    ----------
+    T : networkx DiGraph
+        the tree
+    root : hashable
+        the root of the tree
+    edge_to_blen : dict
+        branch length associated with each directed edge
+
+    Returns
+    -------
+    node_to_tm : dict
+        map from node to distance from the root
+
+    """
+    node_to_tm = {root : 0}
+    for edge in nx.bfs_edges(T, root):
+        va, vb = edge
+        node_to_tm[vb] = node_to_tm[va] + edge_to_blen[edge]
+    return node_to_tm
+
+
 class FullTrackSummary(object):
     """
     Record everything possibly relevant for trajectory likelihood calculation.
@@ -32,7 +59,15 @@ class FullTrackSummary(object):
     sampler, bypassing the step of actually constructing the trajectory object.
 
     """
-    def __init__(self):
+    def __init__(self, T, root, edge_to_blen):
+        # Store some input parameters and
+        # precompute some properties of the tree.
+        self.T = T
+        self.root = root
+        self.node_to_tm = get_node_to_tm(T, root, edge_to_blen)
+        self.bfs_edges = list(nx.bfs_edges(T, root))
+
+        # Initialize trajectory summary.
         self.root_state_to_count = defaultdict(int)
         self.edge_to_transition_to_count = {}
         self.edge_to_state_to_time = {}
@@ -61,12 +96,12 @@ class FullTrackSummary(object):
         if ev.tm <= tm:
             raise Exception('the time of the transition is invalid')
 
-    def on_track(self, T, root, node_to_tm, bfs_edges, track):
-        self.on_root_state(track.history[root])
-        for edge in bfs_edges:
+    def on_track(self, track):
+        self.on_root_state(track.history[self.root])
+        for edge in self.bfs_edges:
             na, nb = edge
-            tma = node_to_tm[na]
-            tmb = node_to_tm[nb]
+            tma = self.node_to_tm[na]
+            tmb = self.node_to_tm[nb]
             state = track.history[na]
             tm = tma
             events = sorted(track.events[edge])

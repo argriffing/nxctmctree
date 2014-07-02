@@ -18,8 +18,8 @@ from numpy.testing import assert_allclose
 from scipy.optimize import minimize
 
 import nxctmctree
-from nxctmctree.trajectory import FullTrackSummary
-from nxctmctree.gillespie import get_node_to_tm, gen_gillespie_trajectories
+from nxctmctree.trajectory import get_node_to_tm, FullTrackSummary
+from nxctmctree.gillespie import gen_gillespie_trajectories
 
 
 def expand_Q(Q):
@@ -144,20 +144,18 @@ def test_gillespie():
     root_prior_distn = nt_distn
     state_to_rate, state_to_distn = expand_Q(Q)
     edge_to_Q = dict((e, Q) for e in edges)
-    edge_to_state_to_rate = dict((e, state_to_rate) for e in edges)
-    edge_to_state_to_distn = dict((e, state_to_distn) for e in edges)
     node_to_tm = get_node_to_tm(T, root, edge_to_blen)
     bfs_edges = list(nx.bfs_edges(T, root))
 
     # Get some gillespie samples.
     # Pick out the leaf states, and get a sample distribution over
     # leaf state patterns.
-    full_track_summary = FullTrackSummary()
+    full_track_summary = FullTrackSummary(T, root, edge_to_blen)
     pattern_to_count = defaultdict(int)
     nsamples_gillespie = 10000
     for track in gen_gillespie_trajectories(T, root, root_prior_distn,
             edge_to_rate, edge_to_blen, edge_to_Q, nsamples_gillespie):
-        full_track_summary.on_track(T, root, node_to_tm, bfs_edges, track)
+        full_track_summary.on_track(track)
 
     # Define some initial guesses for the parameters.
     x0_edge_rates = np.array([0.2, 0.2, 0.2, 0.2, 0.2])

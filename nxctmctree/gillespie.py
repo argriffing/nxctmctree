@@ -19,7 +19,7 @@ from random import expovariate, uniform, random
 
 import networkx as nx
 
-from .trajectory import Event, LightTrajectory
+from .trajectory import get_node_to_tm, Event, LightTrajectory
 
 
 def unsafe_dict_random_choice(d):
@@ -60,33 +60,6 @@ def expand_edge_to_Q(edge_to_Q):
         edge_to_state_to_rate[edge] = state_to_rate
         edge_to_state_to_distn[edge] = state_to_distn
     return edge_to_state_to_rate, edge_to_state_to_distn
-
-
-#FIXME copypasted from nxblink.util
-def get_node_to_tm(T, root, edge_to_blen):
-    """
-    Use branch lengths to compute the distance from each node to the root.
-
-    Parameters
-    ----------
-    T : networkx DiGraph
-        the tree
-    root : hashable
-        the root of the tree
-    edge_to_blen : dict
-        branch length associated with each directed edge
-
-    Returns
-    -------
-    node_to_tm : dict
-        map from node to distance from the root
-
-    """
-    node_to_tm = {root : 0}
-    for edge in nx.bfs_edges(T, root):
-        va, vb = edge
-        node_to_tm[vb] = node_to_tm[va] + edge_to_blen[edge]
-    return node_to_tm
 
 
 def _get_gillespie_trajectory(T, root, root_prior_distn,
