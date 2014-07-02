@@ -23,7 +23,8 @@ import networkx as nx
 from scipy.optimize import minimize
 
 import nxctmctree
-from nxctmctree.gillespie import (get_node_to_tm,
+from nxctmctree.trajectory import get_node_to_tm, FullTrackSummary
+from nxctmctree.gillespie import (
         get_gillespie_trajectory, gen_gillespie_trajectories,
         get_incomplete_gillespie_sample)
 
@@ -56,18 +57,6 @@ def create_rate_matrix(nt_probs, kappa):
     for sa in Q:
         for sb in Q[sa]:
             Q[sa][sb]['weight'] /= expected_rate
-
-    #print('flux matrix:')
-    #for sa in nts:
-        #arr = []
-        #for sb in nts:
-            #if sb in Q[sa]:
-                #arr.append(nt_distn[sa] * Q[sa][sb]['weight'])
-            #else:
-                #arr.append(0)
-        #print(arr)
-    #print()
-
     return Q, nt_distn
 
 
@@ -125,61 +114,6 @@ def get_trajectory_log_likelihood(T, root,
     #print(root_ll, trans_ll, dwell_ll)
     log_likelihood = root_ll + trans_ll + dwell_ll
     return log_likelihood
-
-
-class FullTrackSummary(object):
-    """
-    Record everything possibly relevant for trajectory likelihood calculation.
-
-    These will be sufficient statistics
-    but probably not minimial sufficient statistics.
-
-    """
-    def __init__(self):
-        self.root_state_to_count = defaultdict(int)
-        self.edge_to_transition_to_count = {}
-        self.edge_to_state_to_time = {}
-
-    def _on_root_state(self, root_state):
-        self.root_state_to_count[root_state] += 1
-
-    def _on_transition(self, edge, sa, sb):
-        transition = (sa, sb)
-        if edge not in self.edge_to_transition_to_count:
-            self.edge_to_transition_to_count[edge] = defaultdict(int)
-        transition_to_count = self.edge_to_transition_to_count[edge]
-        transition_to_count[transition] += 1
-
-    def _on_dwell(self, edge, state, dwell):
-        if edge not in self.edge_to_state_to_time:
-            self.edge_to_state_to_time[edge] = defaultdict(float)
-        state_to_time = self.edge_to_state_to_time[edge]
-        state_to_time[state] += dwell
-
-    def _assert_valid_event(self, state, tm, ev):
-        if ev.sa == ev.sb:
-            raise Exception('self transitions are not allowed')
-        if ev.sa != state:
-            raise Exception('the initial state of the transition is invalid')
-        if ev.tm <= tm:
-            raise Exception('the time of the transiiton is invalid')
-
-    def on_track(self, T, root, node_to_tm, bfs_edges, track):
-        self._on_root_state(track.history[root])
-        for edge in bfs_edges:
-            na, nb = edge
-            tma = node_to_tm[na]
-            tmb = node_to_tm[nb]
-            state = track.history[na]
-            tm = tma
-            events = sorted(track.events[edge])
-            for ev in events:
-                self._assert_valid_event(state, tm, ev)
-                self._on_dwell(edge, state, ev.tm - tm)
-                self._on_transition(edge, ev.sa, ev.sb)
-                tm = ev.tm
-                state = ev.sb
-            self._on_dwell(edge, state, tmb - tm)
 
 
 def main():

@@ -18,6 +18,7 @@ from numpy.testing import assert_allclose
 from scipy.optimize import minimize
 
 import nxctmctree
+from nxctmctree.likelihood import get_trajectory_log_likelihood
 from nxctmctree.trajectory import get_node_to_tm, FullTrackSummary
 from nxctmctree.gillespie import gen_gillespie_trajectories
 
@@ -60,44 +61,6 @@ def unpack_params(edges, log_params):
     Q, nt_distn = create_rate_matrix(nt_probs, kappa)
     edge_to_rate = dict(zip(edges, edge_rates))
     return edge_to_rate, Q, nt_distn, kappa, penalty
-
-
-def get_trajectory_log_likelihood(T, root,
-        edge_to_Q, edge_to_rate, root_prior_distn, full_track_summary):
-    """
-    """
-    root_ll = 0
-    trans_ll = 0
-    dwell_ll = 0
-    for root_state, count in full_track_summary.root_state_to_count.items():
-        if count:
-            p = root_prior_distn[root_state]
-            root_ll += count * math.log(p)
-    for edge in T.edges():
-        edge_rate = edge_to_rate[edge]
-        Q = edge_to_Q[edge]
-
-        # transition contribution
-        info = full_track_summary.edge_to_transition_to_count.get(edge, None)
-        if info is None:
-            raise Exception('found an edge with no observed transitions')
-        for (sa, sb), count in info.items():
-            if count:
-                rate = edge_rate * Q[sa][sb]['weight']
-                trans_ll += count * math.log(rate)
-
-        # dwell time contribution
-        info = full_track_summary.edge_to_state_to_time.get(edge, None)
-        if info is None:
-            raise Exception('found an edge with no observed dwell times')
-        for state, duration in info.items():
-            if duration:
-                rate = edge_rate * Q.out_degree(state, weight='weight')
-                dwell_ll -= rate * duration
-
-    # Return log likelihood.
-    log_likelihood = root_ll + trans_ll + dwell_ll
-    return log_likelihood
 
 
 def test_gillespie():
