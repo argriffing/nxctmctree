@@ -20,8 +20,10 @@ import random
 import numpy as np
 import networkx as nx
 
+from scipy.optimize import minimize
+
 import nxctmctree
-from nxctmctree.gillespie import (
+from nxctmctree.gillespie import (get_node_to_tm,
         get_gillespie_trajectory, get_incomplete_gillespie_sample)
 
 
@@ -67,38 +69,109 @@ def unpack_params(edges, log_params):
     nedges = len(edges)
     edge_rates = params[:nedges]
     nt_probs = params[nedges:nedges+4]
-    penalty = np.square(np.log(np.sum(nt_probs)))
+    penalty = np.square(np.log(nt_probs.sum()))
     nt_probs = nt_probs / nt_probs.sum()
     kappa = params[-1]
     Q, nt_distn = create_rate_matrix(nt_probs, kappa)
-    return edge_rates, Q, nt_distn, penalty
+    edge_to_rate = dict(zip(edges, edge_rates))
+    return edge_to_rate, Q, nt_distn, kappa, penalty
+
+
+def get_trajectory_log_likelihood(T, root,
+        edge_to_Q, edge_to_rate, root_prior_distn, full_track_summary):
+    """
+    """
+    root_ll = 0
+    for root_state, count in full_track_summary.root_state_to_count.items():
+        if count:
+            p = root_prior_distn[root_state]
+            root_ll += count * math.log(p)
+    trans_ll = 0
+    dwell_ll = 0
+    for edge in nx.bfs_edges(T, root):
+        edge_rate = edge_to_rate[edge]
+        Q = edge_to_Q[edge]
+
+        # transition contribution
+        info = full_track_summary.edge_to_transition_to_count.get(edge, None)
+        if info is None:
+            raise Exception('found an edge with no observed transitions')
+        for (sa, sb), count in info.items():
+            if count:
+                rate = edge_rate * Q[sa][sb]['weight']
+                trans_ll += count * math.log(rate)
+
+        # dwell time contribution
+        info = full_track_summary.edge_to_state_to_time.get(edge, None)
+        if info is None:
+            raise Exception('found an edge with no observed dwell times')
+        for state, duration in info.items():
+            if duration:
+                rate = edge_rate * Q.degree(state, weight='weight')
+                dwell_ll -= rate * duration
+    #print(root_ll, trans_ll, dwell_ll)
+    log_likelihood = root_ll + trans_ll + dwell_ll
+    return log_likelihood
 
 
 class FullTrackSummary(object):
     """
-    Record everything possibly relevant for EM.
+    Record everything possibly relevant for trajectory likelihood calculation.
 
     These will be sufficient statistics
     but probably not minimial sufficient statistics.
 
     """
     def __init__(self):
-        # Record more summary statistics per track.
-        # Include:
-        #  - state at the root (distribution at the root)
-        # And for each edge:
-        #  - counts of each transition type
-        #  - time spent in each state
-        self.root_state_to_count = {}
+        self.root_state_to_count = defaultdict(int)
         self.edge_to_transition_to_count = {}
         self.edge_to_state_to_time = {}
-        #
 
-    def on_track(self, T, root, track):
-        pass
+    def _on_root_state(self, root_state):
+        self.root_state_to_count[root_state] += 1
+
+    def _on_transition(self, edge, sa, sb):
+        transition = (sa, sb)
+        if edge not in self.edge_to_transition_to_count:
+            self.edge_to_transition_to_count[edge] = defaultdict(int)
+        transition_to_count = self.edge_to_transition_to_count[edge]
+        transition_to_count[transition] += 1
+
+    def _on_dwell(self, edge, state, dwell):
+        if edge not in self.edge_to_state_to_time:
+            self.edge_to_state_to_time[edge] = defaultdict(float)
+        state_to_time = self.edge_to_state_to_time[edge]
+        state_to_time[state] += dwell
+
+    def _assert_valid_event(self, state, tm, ev):
+        if ev.sa == ev.sb:
+            raise Exception('self transitions are not allowed')
+        if ev.sa != state:
+            raise Exception('the initial state of the transition is invalid')
+        if ev.tm <= tm:
+            raise Exception('the time of the transiiton is invalid')
+
+    def on_track(self, T, root, node_to_tm, track):
+        self._on_root_state(track.history[root])
+        for edge in nx.bfs_edges(T, root):
+            na, nb = edge
+            tma = node_to_tm[na]
+            tmb = node_to_tm[nb]
+            state = track.history[na]
+            tm = tma
+            events = sorted(track.events[edge])
+            for ev in events:
+                self._assert_valid_event(state, tm, ev)
+                self._on_dwell(edge, state, ev.tm - tm)
+                self._on_transition(edge, ev.sa, ev.sb)
+                tm = ev.tm
+                state = ev.sb
+            self._on_dwell(edge, state, tmb - tm)
 
 
 def main():
+
+    random.seed(2345)
 
     # Define an edge ordering.
     edges = [
@@ -134,39 +207,81 @@ def main():
     state_to_rate, state_to_distn = expand_Q(Q)
     edge_to_state_to_rate = dict((e, state_to_rate) for e in edges)
     edge_to_state_to_distn = dict((e, state_to_distn) for e in edges)
+    node_to_tm = get_node_to_tm(T, root, edge_to_blen)
 
     # Get some gillespie samples.
     # Pick out the leaf states, and get a sample distribution over
     # leaf state patterns.
+    full_track_summary = FullTrackSummary()
     pattern_to_count = defaultdict(int)
-    nsamples_gillespie = 10000
+    nsamples_gillespie = 1000000
     for i in range(nsamples_gillespie):
         track = get_gillespie_trajectory(T, root, root_prior_distn,
                 edge_to_rate, edge_to_blen,
                 edge_to_state_to_rate, edge_to_state_to_distn)
-        #node_to_state = get_incomplete_gillespie_sample(
-                #T, root, root_prior_distn,
-                #edge_to_rate, edge_to_blen,
-                #edge_to_state_to_rate, edge_to_state_to_distn)
+        full_track_summary.on_track(T, root, node_to_tm, track)
         pattern = tuple(track.history[v] for v in leaves)
         pattern_to_count[pattern] += 1
 
-        # Record more summary statistics per track.
-        # Include:
-        #  - state at the root (distribution at the root)
-        # And for each edge:
-        #  - counts of each transition type
-        #  - time spent in each state
-
-        #for 
-
 
     # Report the patterns.
+    print('sampled patterns:')
     for pattern, count in sorted(pattern_to_count.items()):
         print(pattern, ':', count)
+    print()
+
+    # Report some summary of the trajectories.
+    print('full track summary:')
+    print('root state counts:', full_track_summary.root_state_to_count)
+    print()
+
+    # Report parameter values used for sampling.
+    print('parameter values used for sampling:')
+    print('edge to rate:', edge_to_rate)
+    print('nt distn:', nt_distn)
+    print('kappa:', kappa)
+    print()
 
     # TODO compute max likelihood estimates
     # using the actual gillespie sampled trajectories
+    #
+    # Define some initial guesses for the parameters.
+    x0_edge_rates = np.array([0.2, 0.2, 0.2, 0.2, 0.2])
+    x0_nt_probs = np.array([0.25, 0.25, 0.25, 0.25])
+    x0_kappa = 3.0
+    x0 = pack_params(edges, x0_edge_rates, x0_nt_probs, x0_kappa)
+
+    def objective(log_params):
+        # edges, T, root, full_track_summary are available within this function
+        unpacked = unpack_params(edges, log_params)
+        edge_to_rate, Q, nt_distn, kappa, penalty = unpacked
+        edge_to_Q = dict((e, Q) for e in edges)
+        root_prior_distn = nt_distn
+        log_likelihood = get_trajectory_log_likelihood(T, root,
+                edge_to_Q, edge_to_rate, root_prior_distn, full_track_summary)
+        return -log_likelihood + penalty
+
+    x_sim = pack_params(edges, edge_rates, nt_probs, kappa)
+    print('objective function value using the parameters used for sampling:')
+    print(objective(x_sim))
+    print()
+
+    result = minimize(
+            objective, x0, method='L-BFGS-B',
+            #options=dict(pgtol=1e-8),
+            )
+
+    print(result)
+    log_params = result.x
+    unpacked = unpack_params(edges, log_params)
+    edge_to_rate, Q, nt_distn, kappa, penalty = unpacked
+    print('max likelihood estimates from sampled trajectories:')
+    print('edge to rate:', edge_to_rate)
+    print('nt distn:', nt_distn)
+    print('kappa:', kappa)
+    print('penalty:', penalty)
+    print()
+
 
     # TODO compute max likelihood estimates
     # using EM with conditionally sampled histories using Rao-Teh.
