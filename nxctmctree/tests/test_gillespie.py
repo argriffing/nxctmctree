@@ -22,16 +22,6 @@ from nxctmctree.trajectory import get_node_to_tm, FullTrackSummary
 from nxctmctree.gillespie import gen_gillespie_trajectories
 
 
-def expand_Q(Q):
-    state_to_rate = Q.out_degree(weight='weight')
-    state_to_distn = dict()
-    for sa in Q:
-        rate = state_to_rate[sa]
-        distn = dict((sb, Q[sa][sb]['weight'] / rate) for sb in Q[sa])
-        state_to_distn[sa] = distn
-    return state_to_rate, state_to_distn
-
-
 def create_rate_matrix(nt_probs, kappa):
     """
     Create an HKY rate matrix normalized to expected rate of 1.0.
@@ -77,13 +67,13 @@ def get_trajectory_log_likelihood(T, root,
     """
     """
     root_ll = 0
+    trans_ll = 0
+    dwell_ll = 0
     for root_state, count in full_track_summary.root_state_to_count.items():
         if count:
             p = root_prior_distn[root_state]
             root_ll += count * math.log(p)
-    trans_ll = 0
-    dwell_ll = 0
-    for edge in nx.bfs_edges(T, root):
+    for edge in T.edges():
         edge_rate = edge_to_rate[edge]
         Q = edge_to_Q[edge]
 
@@ -104,7 +94,8 @@ def get_trajectory_log_likelihood(T, root,
             if duration:
                 rate = edge_rate * Q.out_degree(state, weight='weight')
                 dwell_ll -= rate * duration
-    #print(root_ll, trans_ll, dwell_ll)
+
+    # Return log likelihood.
     log_likelihood = root_ll + trans_ll + dwell_ll
     return log_likelihood
 
@@ -142,16 +133,12 @@ def test_gillespie():
     edge_to_blen = dict((e, 1) for e in edges)
     Q, nt_distn = create_rate_matrix(nt_probs, kappa)
     root_prior_distn = nt_distn
-    state_to_rate, state_to_distn = expand_Q(Q)
     edge_to_Q = dict((e, Q) for e in edges)
-    node_to_tm = get_node_to_tm(T, root, edge_to_blen)
-    bfs_edges = list(nx.bfs_edges(T, root))
 
     # Get some gillespie samples.
     # Pick out the leaf states, and get a sample distribution over
     # leaf state patterns.
     full_track_summary = FullTrackSummary(T, root, edge_to_blen)
-    pattern_to_count = defaultdict(int)
     nsamples_gillespie = 10000
     for track in gen_gillespie_trajectories(T, root, root_prior_distn,
             edge_to_rate, edge_to_blen, edge_to_Q, nsamples_gillespie):
