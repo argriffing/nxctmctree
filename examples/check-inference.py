@@ -23,6 +23,7 @@ import networkx as nx
 from scipy.optimize import minimize
 
 import nxctmctree
+from nxctmctree.likelihood import get_trajectory_log_likelihood
 from nxctmctree.trajectory import get_node_to_tm, FullTrackSummary
 from nxctmctree.gillespie import (
         get_gillespie_trajectory, gen_gillespie_trajectories,
@@ -79,43 +80,6 @@ def unpack_params(edges, log_params):
     return edge_to_rate, Q, nt_distn, kappa, penalty
 
 
-def get_trajectory_log_likelihood(T, root,
-        edge_to_Q, edge_to_rate, root_prior_distn, full_track_summary):
-    """
-    """
-    root_ll = 0
-    for root_state, count in full_track_summary.root_state_to_count.items():
-        if count:
-            p = root_prior_distn[root_state]
-            root_ll += count * math.log(p)
-    trans_ll = 0
-    dwell_ll = 0
-    for edge in nx.bfs_edges(T, root):
-        edge_rate = edge_to_rate[edge]
-        Q = edge_to_Q[edge]
-
-        # transition contribution
-        info = full_track_summary.edge_to_transition_to_count.get(edge, None)
-        if info is None:
-            raise Exception('found an edge with no observed transitions')
-        for (sa, sb), count in info.items():
-            if count:
-                rate = edge_rate * Q[sa][sb]['weight']
-                trans_ll += count * math.log(rate)
-
-        # dwell time contribution
-        info = full_track_summary.edge_to_state_to_time.get(edge, None)
-        if info is None:
-            raise Exception('found an edge with no observed dwell times')
-        for state, duration in info.items():
-            if duration:
-                rate = edge_rate * Q.out_degree(state, weight='weight')
-                dwell_ll -= rate * duration
-    #print(root_ll, trans_ll, dwell_ll)
-    log_likelihood = root_ll + trans_ll + dwell_ll
-    return log_likelihood
-
-
 def main():
 
     random.seed(23456)
@@ -168,13 +132,13 @@ def main():
     # Get some gillespie samples.
     # Pick out the leaf states, and get a sample distribution over
     # leaf state patterns.
-    full_track_summary = FullTrackSummary()
+    full_track_summary = FullTrackSummary(T, root, edge_to_blen)
     pattern_to_count = defaultdict(int)
     nsamples_gillespie = 10000
     node_to_state_to_count = dict((v, defaultdict(int)) for v in T)
     for track in gen_gillespie_trajectories(T, root, root_prior_distn,
             edge_to_rate, edge_to_blen, edge_to_Q, nsamples_gillespie):
-        full_track_summary.on_track(T, root, node_to_tm, bfs_edges, track)
+        full_track_summary.on_track(track)
         for v, state in track.history.items():
             node_to_state_to_count[v][state] += 1
         pattern = tuple(track.history[v] for v in leaves)
