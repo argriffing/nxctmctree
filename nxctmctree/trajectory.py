@@ -10,11 +10,73 @@ not with respect to an edge endpoint.
 """
 from __future__ import division, print_function, absolute_import
 
+from collections import defaultdict
 import warnings
 
 import networkx as nx
 
-#TODO use this module for base classes in nxblink/trajectory.py
+
+class FullTrackSummary(object):
+    """
+    Record everything possibly relevant for trajectory likelihood calculation.
+
+    These will be sufficient statistics
+    but probably not minimial sufficient statistics.
+
+    The usual usage is to create the object,
+    then sample a bunch of tracks, calling on_track for each sample,
+    then doing things with the summaries.
+
+    An alternative usage could be to directly call the root state,
+    transition, and dwell notification functions directly from a trajectory
+    sampler, bypassing the step of actually constructing the trajectory object.
+
+    """
+    def __init__(self):
+        self.root_state_to_count = defaultdict(int)
+        self.edge_to_transition_to_count = {}
+        self.edge_to_state_to_time = {}
+
+    def on_root_state(self, root_state):
+        self.root_state_to_count[root_state] += 1
+
+    def on_transition(self, edge, sa, sb):
+        transition = (sa, sb)
+        if edge not in self.edge_to_transition_to_count:
+            self.edge_to_transition_to_count[edge] = defaultdict(int)
+        transition_to_count = self.edge_to_transition_to_count[edge]
+        transition_to_count[transition] += 1
+
+    def on_dwell(self, edge, state, dwell):
+        if edge not in self.edge_to_state_to_time:
+            self.edge_to_state_to_time[edge] = defaultdict(float)
+        state_to_time = self.edge_to_state_to_time[edge]
+        state_to_time[state] += dwell
+
+    def assert_valid_event(self, state, tm, ev):
+        if ev.sa == ev.sb:
+            raise Exception('self transitions are not allowed')
+        if ev.sa != state:
+            raise Exception('the initial state of the transition is invalid')
+        if ev.tm <= tm:
+            raise Exception('the time of the transition is invalid')
+
+    def on_track(self, T, root, node_to_tm, bfs_edges, track):
+        self.on_root_state(track.history[root])
+        for edge in bfs_edges:
+            na, nb = edge
+            tma = node_to_tm[na]
+            tmb = node_to_tm[nb]
+            state = track.history[na]
+            tm = tma
+            events = sorted(track.events[edge])
+            for ev in events:
+                self.assert_valid_event(state, tm, ev)
+                self.on_dwell(edge, state, ev.tm - tm)
+                self.on_transition(edge, ev.sa, ev.sb)
+                tm = ev.tm
+                state = ev.sb
+            self.on_dwell(edge, state, tmb - tm)
 
 
 class LightTrajectory(object):

@@ -15,11 +15,19 @@ during the sampling procedure, this extra information is not recorded.
 from __future__ import division, print_function, absolute_import
 
 import math
-from random import expovariate, uniform
+from random import expovariate, uniform, random
 
 import networkx as nx
 
 from .trajectory import Event, LightTrajectory
+
+
+def unsafe_dict_random_choice(d):
+    x = random()
+    for i, w in d.items():
+        x -= w
+        if x < 0:
+            return i
 
 
 #FIXME copypasted from nxmctree.sampling
@@ -30,6 +38,28 @@ def dict_random_choice(d):
         x -= w
         if x < 0:
             return i
+
+
+#FIXME copypasted from an example
+def expand_Q(Q):
+    state_to_rate = Q.out_degree(weight='weight')
+    state_to_distn = dict()
+    for sa in Q:
+        rate = state_to_rate[sa]
+        distn = dict((sb, Q[sa][sb]['weight'] / rate) for sb in Q[sa])
+        state_to_distn[sa] = distn
+    return state_to_rate, state_to_distn
+
+
+def expand_edge_to_Q(edge_to_Q):
+    # Compute expansion of Q on each edge.
+    edge_to_state_to_rate = {}
+    edge_to_state_to_distn = {}
+    for edge, Q in edge_to_Q.items():
+        state_to_rate, state_to_distn = expand_Q(Q)
+        edge_to_state_to_rate[edge] = state_to_rate
+        edge_to_state_to_distn[edge] = state_to_distn
+    return edge_to_state_to_rate, edge_to_state_to_distn
 
 
 #FIXME copypasted from nxblink.util
@@ -59,41 +89,22 @@ def get_node_to_tm(T, root, edge_to_blen):
     return node_to_tm
 
 
-def get_gillespie_trajectory(T, root, root_prior_distn,
-        edge_to_rate, edge_to_blen,
-        edge_to_state_to_rate, edge_to_state_to_distn):
+def _get_gillespie_trajectory(T, root, root_prior_distn,
+        edge_to_rate, edge_to_blen, node_to_tm, bfs_edges,
+        edge_to_state_to_rate, edge_to_state_to_distn,
+        ):
     """
-    Return map from node to sampled state.
-
-    Parameters
-    ----------
-    T : networkx DiGraph
-        rooted tree
-    root : hashable
-        root node of the rooted networkx tree T
-    root_prior_distn : dict
-        prior distribution over states at the root
-    edge_to_rate : dict
-        map from edge to rate scaling factor
-    edge_to_blen : dict
-        map from edge to branch length
-    edge_to_state_to_rate : dict
-        map from edge to a map from each state to its total exit rate
-    edge_to_state_to_distn : dict
-        map from edge to a map from each state to its transition distribution
+    This helper function uses precalculated information.
 
     """
     # Initialize the trajectory with an arbitrary name and no history or events.
     track = LightTrajectory(name='gillespie', history={}, events={})
 
-    # Compute map from nodes to times with respect to the root.
-    node_to_tm = get_node_to_tm(T, root, edge_to_blen)
-
     # Sample the state at the root.
-    track.history[root] = dict_random_choice(root_prior_distn)
+    track.history[root] = unsafe_dict_random_choice(root_prior_distn)
 
     # Sample events along edges.
-    for edge in nx.bfs_edges(T, root):
+    for edge in bfs_edges:
 
         # Unpack edge-specific info.
         rate = edge_to_rate[edge]
@@ -116,7 +127,7 @@ def get_gillespie_trajectory(T, root, root_prior_distn,
             tm += expovariate(rate * state_to_rate[state])
             if tm > tmb:
                 break
-            sb = dict_random_choice(state_to_distn[state])
+            sb = unsafe_dict_random_choice(state_to_distn[state])
             ev = Event(track=track, tm=tm, sa=state, sb=sb)
             track.events[edge].append(ev)
             state = sb
@@ -124,6 +135,77 @@ def get_gillespie_trajectory(T, root, root_prior_distn,
 
     # Return the track.
     return track
+
+
+def get_gillespie_trajectory(T, root, root_prior_distn,
+        edge_to_rate, edge_to_blen, edge_to_Q):
+    """
+    Return map from node to sampled state.
+
+    Parameters
+    ----------
+    T : networkx DiGraph
+        rooted tree
+    root : hashable
+        root node of the rooted networkx tree T
+    root_prior_distn : dict
+        prior distribution over states at the root
+    edge_to_rate : dict
+        map from edge to rate scaling factor
+    edge_to_blen : dict
+        map from edge to branch length
+    edge_to_Q : dict
+        map from edge to networkx DiGraph rate matrix
+
+    """
+    # Precalculate some stuff.
+    node_to_tm = get_node_to_tm(T, root, edge_to_blen)
+    bfs_edges = list(nx.bfs_edges(T, root))
+    edge_to_state_to_rate, edge_to_state_to_distn = expand_edge_to_Q(edge_to_Q)
+
+    # Sample a track.
+    track = _get_gillespie_trajectory(T, root, root_prior_distn,
+            edge_to_rate, edge_to_blen, node_to_tm, bfs_edges,
+            edge_to_state_to_rate, edge_to_state_to_distn)
+    return track
+
+
+def gen_gillespie_trajectories(T, root, root_prior_distn,
+        edge_to_rate, edge_to_blen, edge_to_Q, ntrajectories=None):
+    """
+    Avoid redundant calculations shared across trajectories.
+
+    Parameters
+    ----------
+    T : networkx DiGraph
+        rooted tree
+    root : hashable
+        root node of the rooted networkx tree T
+    root_prior_distn : dict
+        prior distribution over states at the root
+    edge_to_rate : dict
+        map from edge to rate scaling factor
+    edge_to_blen : dict
+        map from edge to branch length
+    edge_to_Q : dict
+        map from edge to networkx DiGraph rate matrix
+    ntrajectories : integer, optional
+        optionally limit the number of sampled trajectories
+
+    """
+    # Precalculate some stuff.
+    node_to_tm = get_node_to_tm(T, root, edge_to_blen)
+    bfs_edges = list(nx.bfs_edges(T, root))
+    edge_to_state_to_rate, edge_to_state_to_distn = expand_edge_to_Q(edge_to_Q)
+
+    # Sample a bunch of tracks.
+    nsampled = 0
+    while ntrajectories is None or nsampled < ntrajectories:
+        track = _get_gillespie_trajectory(T, root, root_prior_distn,
+                edge_to_rate, edge_to_blen, node_to_tm, bfs_edges,
+                edge_to_state_to_rate, edge_to_state_to_distn)
+        yield track
+        nsampled += 1
 
 
 def get_incomplete_gillespie_sample(T, root, root_prior_distn,
@@ -151,7 +233,7 @@ def get_incomplete_gillespie_sample(T, root, root_prior_distn,
 
     """
     # Sample the state at the root.
-    node_to_state = {root : dict_random_choice(root_prior_distn)}
+    node_to_state = {root : unsafe_dict_random_choice(root_prior_distn)}
 
     # Sample states along edges, recording only the final state.
     for edge in nx.bfs_edges(T, root):
@@ -173,7 +255,7 @@ def get_incomplete_gillespie_sample(T, root, root_prior_distn,
             tm += expovariate(rate * state_to_rate[state])
             if tm > blen:
                 break
-            state = dict_random_choice(state_to_distn[state])
+            state = unsafe_dict_random_choice(state_to_distn[state])
         node_to_state[nb] = state
 
     # Return the map from node to state.

@@ -1,13 +1,7 @@
 """
-This script checks inference of branch lengths and HKY parameter values.
+Test Monte Carlo inference using unconditional Gillespie forward samples.
 
-No part of this script uses eigendecomposition or matrix exponentials,
-or even numpy or scipy linear algebra functions.
-The sampling of joint nucleotide states at leaves uses
-unconditional Gillespie sampling, and the inference of branch lengths
-and parameter values given these samples uses Monte Carlo
-expectation-maximization with non-CTBN Rao-Teh sampling of substitution
-trajectories.
+This test module has been converted from an example application.
 
 """
 from __future__ import division, print_function, absolute_import
@@ -17,15 +11,15 @@ from itertools import permutations
 import math
 import random
 
-import numpy as np
 import networkx as nx
+import numpy as np
+from numpy.testing import assert_allclose
 
 from scipy.optimize import minimize
 
 import nxctmctree
-from nxctmctree.gillespie import (get_node_to_tm,
-        get_gillespie_trajectory, gen_gillespie_trajectories,
-        get_incomplete_gillespie_sample)
+from nxctmctree.trajectory import FullTrackSummary
+from nxctmctree.gillespie import get_node_to_tm, gen_gillespie_trajectories
 
 
 def expand_Q(Q):
@@ -56,18 +50,6 @@ def create_rate_matrix(nt_probs, kappa):
     for sa in Q:
         for sb in Q[sa]:
             Q[sa][sb]['weight'] /= expected_rate
-
-    #print('flux matrix:')
-    #for sa in nts:
-        #arr = []
-        #for sb in nts:
-            #if sb in Q[sa]:
-                #arr.append(nt_distn[sa] * Q[sa][sb]['weight'])
-            #else:
-                #arr.append(0)
-        #print(arr)
-    #print()
-
     return Q, nt_distn
 
 
@@ -127,62 +109,7 @@ def get_trajectory_log_likelihood(T, root,
     return log_likelihood
 
 
-class FullTrackSummary(object):
-    """
-    Record everything possibly relevant for trajectory likelihood calculation.
-
-    These will be sufficient statistics
-    but probably not minimial sufficient statistics.
-
-    """
-    def __init__(self):
-        self.root_state_to_count = defaultdict(int)
-        self.edge_to_transition_to_count = {}
-        self.edge_to_state_to_time = {}
-
-    def _on_root_state(self, root_state):
-        self.root_state_to_count[root_state] += 1
-
-    def _on_transition(self, edge, sa, sb):
-        transition = (sa, sb)
-        if edge not in self.edge_to_transition_to_count:
-            self.edge_to_transition_to_count[edge] = defaultdict(int)
-        transition_to_count = self.edge_to_transition_to_count[edge]
-        transition_to_count[transition] += 1
-
-    def _on_dwell(self, edge, state, dwell):
-        if edge not in self.edge_to_state_to_time:
-            self.edge_to_state_to_time[edge] = defaultdict(float)
-        state_to_time = self.edge_to_state_to_time[edge]
-        state_to_time[state] += dwell
-
-    def _assert_valid_event(self, state, tm, ev):
-        if ev.sa == ev.sb:
-            raise Exception('self transitions are not allowed')
-        if ev.sa != state:
-            raise Exception('the initial state of the transition is invalid')
-        if ev.tm <= tm:
-            raise Exception('the time of the transiiton is invalid')
-
-    def on_track(self, T, root, node_to_tm, bfs_edges, track):
-        self._on_root_state(track.history[root])
-        for edge in bfs_edges:
-            na, nb = edge
-            tma = node_to_tm[na]
-            tmb = node_to_tm[nb]
-            state = track.history[na]
-            tm = tma
-            events = sorted(track.events[edge])
-            for ev in events:
-                self._assert_valid_event(state, tm, ev)
-                self._on_dwell(edge, state, ev.tm - tm)
-                self._on_transition(edge, ev.sa, ev.sb)
-                tm = ev.tm
-                state = ev.sb
-            self._on_dwell(edge, state, tmb - tm)
-
-
-def main():
+def test_gillespie():
 
     random.seed(23456)
 
@@ -202,9 +129,6 @@ def main():
     leaves = ('N2', 'N3', 'N4', 'N5')
 
     # Define edge-specific rate scaling factors.
-    #edge_rates = np.array([0.01, 0.02, 0.03, 0.04, 0.05])
-    #edge_rates = np.array([0.1, 0.2, 0.3, 0.4, 0.5])
-    #edge_rates = np.array([1.1, 1.2, 1.3, 1.4, 1.5])
     edge_rates = np.array([1, 2, 3, 4, 5])
 
     # Define HKY parameter values.
@@ -225,57 +149,16 @@ def main():
     node_to_tm = get_node_to_tm(T, root, edge_to_blen)
     bfs_edges = list(nx.bfs_edges(T, root))
 
-    print('state_to_rate:')
-    print(state_to_rate)
-    print('state_to_distn:')
-    print(state_to_distn)
-    print()
-
     # Get some gillespie samples.
     # Pick out the leaf states, and get a sample distribution over
     # leaf state patterns.
     full_track_summary = FullTrackSummary()
     pattern_to_count = defaultdict(int)
     nsamples_gillespie = 10000
-    node_to_state_to_count = dict((v, defaultdict(int)) for v in T)
     for track in gen_gillespie_trajectories(T, root, root_prior_distn,
             edge_to_rate, edge_to_blen, edge_to_Q, nsamples_gillespie):
         full_track_summary.on_track(T, root, node_to_tm, bfs_edges, track)
-        for v, state in track.history.items():
-            node_to_state_to_count[v][state] += 1
-        pattern = tuple(track.history[v] for v in leaves)
-        pattern_to_count[pattern] += 1
 
-    # Report the patterns.
-    print('sampled patterns:')
-    for pattern, count in sorted(pattern_to_count.items()):
-        print(pattern, ':', count)
-    print()
-
-    # Report state counts at nodes.
-    print('state counts at nodes:')
-    for v in T:
-        state_to_count = node_to_state_to_count[v]
-        print('node:', v)
-        for state in 'ACGT':
-            print('  state:', state, 'count:', state_to_count[state])
-    print()
-
-    # Report some summary of the trajectories.
-    print('full track summary:')
-    print('root state counts:', full_track_summary.root_state_to_count)
-    print()
-
-    # Report parameter values used for sampling.
-    print('parameter values used for sampling:')
-    print('edge to rate:', edge_to_rate)
-    print('nt distn:', nt_distn)
-    print('kappa:', kappa)
-    print()
-
-    # TODO compute max likelihood estimates
-    # using the actual gillespie sampled trajectories
-    #
     # Define some initial guesses for the parameters.
     x0_edge_rates = np.array([0.2, 0.2, 0.2, 0.2, 0.2])
     x0_nt_probs = np.array([0.25, 0.25, 0.25, 0.25])
@@ -292,33 +175,23 @@ def main():
                 edge_to_Q, edge_to_rate, root_prior_distn, full_track_summary)
         return -log_likelihood + penalty
 
-    x_sim = pack_params(edges, edge_rates, nt_probs, kappa)
-    print('objective function value using the parameters used for sampling:')
-    print(objective(x_sim))
-    print()
-
-    result = minimize(
-            objective, x0, method='L-BFGS-B',
-            #options=dict(pgtol=1e-8),
-            )
-
-    print(result)
+    # Compute max likelihood estimates
+    # using the actual Gillespie sampled trajectories.
+    result = minimize(objective, x0, method='L-BFGS-B')
     log_params = result.x
     unpacked = unpack_params(edges, log_params)
-    edge_to_rate, Q, nt_distn, kappa, penalty = unpacked
-    print('max likelihood estimates from sampled trajectories:')
-    print('edge to rate:', edge_to_rate)
-    print('nt distn:', nt_distn)
-    print('kappa:', kappa)
-    print('penalty:', penalty)
-    print()
+    opt_edge_to_rate, opt_Q, opt_nt_distn, opt_kappa, penalty = unpacked
 
-
-    # TODO compute max likelihood estimates
-    # using EM with conditionally sampled histories using Rao-Teh.
-
-
-
-if __name__ == '__main__':
-    main()
+    # Check that the max likelihood estimates
+    # are somewhat near the parameter values used for sampling.
+    # Require relative tolerance of 1e-1 which is not too precise,
+    # but because we want the test to run in a reasonable amount of time
+    # we are not using so many samples so we cannot expect too much precision.
+    rtol = 1e-1
+    for edge in edges:
+        assert_allclose(opt_edge_to_rate[edge], edge_to_rate[edge], rtol=rtol)
+    nts = 'ACGT'
+    for nt in nts:
+        assert_allclose(opt_nt_distn[nt], nt_distn[nt], rtol=rtol)
+    assert_allclose(opt_kappa, kappa, rtol=rtol)
 
