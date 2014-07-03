@@ -151,3 +151,76 @@ def add_poisson_events(T, root, node_to_tm, edge_to_poisson_rates, track):
         # Extend the list of events with the new events.
         track.events[edge].extend(new_events)
 
+
+def get_feasible_blank_trajectory(
+        T, root, root_prior_distn, edge_to_Q, node_to_tm):
+    """
+    Create a blank trajectory that should be feasible.
+
+    The events are placed on the edges of the tree,
+    but none of the structural node states are determined,
+    and none of the event transition natures are determined.
+
+    """
+    history = dict((v, None) for v in T)
+    events = dict((e, None) for e in T.edges())
+    track = Trajectory(name='mytrack', history=history, events=events)
+    for edge, Q in edge_to_Q.edges():
+        na, nb = edge
+        tma = node_to_tm[na]
+        tmb = node_to_tm[nb]
+        track.events[edge] = []
+
+        # Use the diameter of the transition rate matrix graph
+        # to decide how many events to place on the edge.
+        diameter = nx.diameter(Q)
+        dt = (tmb - tma) / diameter
+        for i in range(1, diameter):
+            tm = tma + dt * i
+            ev = Event(track=track, tm=tm, sa=None, sb=None)
+            track.events[edge].append(ev)
+
+    # Return the track.
+    return track
+
+
+def gen_raoteh_trajectories(
+        T, edge_to_Q, root, root_prior_distn, node_to_data_fset,
+        edge_to_blen, edge_to_rate,
+        set_of_all_states, initial_track=None, ntrajectories=None):
+    """
+    Yield non-independently sampled trajectories.
+
+    The first few trajectories may have low probability,
+    but the probability should be positive.
+
+    """
+    # Extract properties of the tree.
+    node_to_tm = get_node_to_tm(T, root, edge_to_blen)
+
+    # Initialize a blank track if none has been provided.
+    if initial_track is not None:
+        raise NotImplementedError
+    track = get_feasible_blank_trajectory(
+            T, root, root_prior_distn, edge_to_Q, node_to_tm)
+
+    # Sample a bunch of tracks.
+    nsampled = 0
+    while True:
+
+        # Sample states on the track.
+
+        # Clear the self-transition events.
+
+        # Yield the track.
+        yield track
+        nsampled += 1
+
+        # Check if we have finished.
+        if ntrajectories is not None and nsampled >= ntrajectories:
+            return
+
+        # Reset states on the trajectory to None.
+
+        # Add poisson sampled events to the trajectory.
+
