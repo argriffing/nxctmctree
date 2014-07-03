@@ -12,10 +12,11 @@ trajectories.
 """
 from __future__ import division, print_function, absolute_import
 
-from collections import defaultdict
-from itertools import permutations
+import itertools
 import math
 import random
+from collections import defaultdict
+from itertools import permutations
 
 import numpy as np
 import networkx as nx
@@ -28,6 +29,7 @@ from nxctmctree.trajectory import get_node_to_tm, FullTrackSummary
 from nxctmctree.gillespie import (
         get_gillespie_trajectory, gen_gillespie_trajectories,
         get_incomplete_gillespie_sample)
+from nxctmctree import raoteh
 
 
 def expand_Q(Q):
@@ -78,6 +80,16 @@ def unpack_params(edges, log_params):
     Q, nt_distn = create_rate_matrix(nt_probs, kappa)
     edge_to_rate = dict(zip(edges, edge_rates))
     return edge_to_rate, Q, nt_distn, kappa, penalty
+
+
+def objective(T, root, edges, full_track_summary, log_params):
+    unpacked = unpack_params(edges, log_params)
+    edge_to_rate, Q, nt_distn, kappa, penalty = unpacked
+    edge_to_Q = dict((e, Q) for e in edges)
+    root_prior_distn = nt_distn
+    log_likelihood = get_trajectory_log_likelihood(T, root,
+            edge_to_Q, edge_to_rate, root_prior_distn, full_track_summary)
+    return -log_likelihood + penalty
 
 
 def main():
@@ -144,6 +156,9 @@ def main():
         pattern = tuple(track.history[v] for v in leaves)
         pattern_to_count[pattern] += 1
 
+    # Count the number of patterns.
+    npatterns = len(pattern_to_count)
+
     # Report the patterns.
     print('sampled patterns:')
     for pattern, count in sorted(pattern_to_count.items()):
@@ -180,25 +195,13 @@ def main():
     x0_kappa = 3.0
     x0 = pack_params(edges, x0_edge_rates, x0_nt_probs, x0_kappa)
 
-    def objective(log_params):
-        # edges, T, root, full_track_summary are available within this function
-        unpacked = unpack_params(edges, log_params)
-        edge_to_rate, Q, nt_distn, kappa, penalty = unpacked
-        edge_to_Q = dict((e, Q) for e in edges)
-        root_prior_distn = nt_distn
-        log_likelihood = get_trajectory_log_likelihood(T, root,
-                edge_to_Q, edge_to_rate, root_prior_distn, full_track_summary)
-        return -log_likelihood + penalty
-
     x_sim = pack_params(edges, edge_rates, nt_probs, kappa)
     print('objective function value using the parameters used for sampling:')
     print(objective(x_sim))
     print()
 
-    result = minimize(
-            objective, x0, method='L-BFGS-B',
-            #options=dict(pgtol=1e-8),
-            )
+    f = partial(objective, T, root, edges, full_track_summary)
+    result = minimize(f, x0, method='L-BFGS-B')
 
     print(result)
     log_params = result.x
@@ -216,15 +219,14 @@ def main():
     # using EM with conditionally sampled histories using Rao-Teh.
 
     # Initialize a blank track for each leaf pattern, for EM with Rao-Teh.
-    tracks = []
-    npatterns = len(pattern_to_counts)
-    for i in range(npatterns):
-        track = raoteh.get_feasible_blank_trajectory(
-                T, root, root_prior_distn, edge_to_Q, node_to_tm)
-        tracks.append(track)
+    #tracks = []
+    #for i in range(npatterns):
+        #track = raoteh.get_feasible_blank_trajectory(
+                #T, root, root_prior_distn, edge_to_Q, node_to_tm)
+        #tracks.append(track)
 
     # Get the leaf states.
-    # This sampled data is in pattern_to_counts.
+    # This sampled data is in pattern_to_count.
     
     # and use Rao-Teh to sample a bunch of trajectories
     # given these leaf states.
@@ -234,18 +236,81 @@ def main():
     x0_nt_probs = np.array([0.25, 0.25, 0.25, 0.25])
     x0_kappa = 3.0
     x0 = pack_params(edges, x0_edge_rates, x0_nt_probs, x0_kappa)
+    packed = x0
     unpacked = unpack_params(edges, x0)
     edge_to_rate, Q, nt_distn, kappa, penalty = unpacked
     edge_to_Q = dict((e, Q) for e in edges)
     root_prior_distn = nt_distn
 
-    # Do some EM iterations.
-    nsampled = 0
+    # Do some burn-in samples for each pattern,
+    # using the initial parameter values.
+    # Do not store summaries of these sampled trajectories.
     nburn = 10
-    while True:
+    pattern_to_track = {}
+    pattern_to_data = {}
+    set_of_all_states = set('ACGT')
+    for idx, pattern in enumerate(pattern_to_count):
+        print('burning in the trajectory',
+                'for pattern', idx+1, 'of', npatterns, '...')
+        
+        # Create the data representation.
+        leaf_to_state = zip(leaves, pattern)
+        node_to_data_fset = {}
+        for node in T:
+            if node in leaf_to_state:
+                fset = {leaf_to_state[node]}
+            else:
+                fset = set_of_all_states
+            node_to_data_fset[node] = fset
 
-        # Initialize summaries of the Rao-Teh sampled trajectories.
-        pass
+        # Save the data representation constructed for each pattern.
+        pattern_to_data[pattern] = node_to_data_fset
+
+        # Create and burn in the track.
+        track = None
+        for updated_track in raoteh.gen_raoteh_trajectories(
+                T, edge_to_Q, root, root_prior_distn, node_to_data_fset,
+                edge_to_blen, edge_to_rate,
+                set_of_all_states, initial_track=track, ntrajectories=nburn):
+            track = updated_track
+
+        # Add the track.
+        pattern_to_track[pattern] = track
+
+    # Do some EM iterations.
+    for em_iteration_index in itertools.count():
+        print('starting EM iteration', em_iteration_index+1, '...')
+
+        # Each EM iteration gets its own summary object.
+        full_track_summary = FullTrackSummary(T, root, edge_to_blen)
+
+        # Do a few Rao-Teh samples for each pattern within each EM iteration.
+        for idx, (pattern, track) in enumerate(pattern_to_track.items()):
+            print('sampling Rao-Teh trajectories for pattern', idx+1, '...')
+            count = pattern_to_count[pattern]
+            node_to_data_fset = pattern_to_data[pattern]
+
+            # Note that the track is actually updated in-place
+            # even though the track object is yielded at each iteration.
+            for updated_track in raoteh.gen_raoteh_trajectories(
+                    T, edge_to_Q, root, root_prior_distn, node_to_data_fset,
+                    edge_to_blen, edge_to_rate, set_of_all_states,
+                    initial_track=track, ntrajectories=count):
+                full_track_summary.on_track(updated_track)
+
+        # This is the M step of EM.
+        f = partial(objective, T, root, edges, full_track_summary)
+        result = minimize(f, packed, method='L-BFGS-B')
+        print(result)
+        packed = result.x
+        unpacked = unpack_params(edges, packed)
+        edge_to_rate, Q, nt_distn, kappa, penalty = unpacked
+        print('max likelihood estimates from sampled trajectories:')
+        print('edge to rate:', edge_to_rate)
+        print('nt distn:', nt_distn)
+        print('kappa:', kappa)
+        print('penalty:', penalty)
+        print()
 
 
 if __name__ == '__main__':
