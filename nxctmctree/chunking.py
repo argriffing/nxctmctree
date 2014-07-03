@@ -1,293 +1,137 @@
 """
-This module is related to tree segmentation into iso-foreground state chunks.
-
-Within each chunk of the tree, the foreground state cannot change.
-Each edge of the chunk index tree will be mapped to a foreground event.
-Each chunk object will have 
- * collection of structural nodes.
- * likelihood map with respect foreground states
- * set of foreground states allowed by background trajectories.
- * for each foreground state, the sum of background transition expectations,
-   where exp(-sum) will be the emission probability for the foreground state.
+Break a tree into chunks within which the state cannot change.
 
 """
 from __future__ import division, print_function, absolute_import
 
-import math
-
 import networkx as nx
 
-import nxmctree
-from nxmctree.sampling import sample_history
+
+__all__ = ['ChunkNodeInfo', 'ChunkTreeInfo', 'trajectory_to_chunk_tree']
 
 
+class ChunkNodeInfo(object):
+    def __init__(self):
+        self.structural_nodes = []
+        self.upstream_events = []
+        self.downstream_events = []
+
+    def on_structural_node(self, node):
+        self.structural_nodes.append(node)
+
+    def on_upstream_event(self, event):
+        self.upstream_events.append(event)
+
+    def on_downstream_event(self, event):
+        self.downstream_events.append(event)
 
 
-
-class Chunk(object):
-    def __init__(self, idx, all_fg_states):
-        self.idx = idx
-        self.structural_nodes = set()
-        self.data_allowed_states = set(all_fg_states)
-        self.bg_allowed_states = set(all_fg_states)
-        self.state_to_bg_penalty = dict((s, 0) for s in all_fg_states)
-
-    def get_lmap(self):
-        lmap = dict()
-        for state in self.data_allowed_states & self.bg_allowed_states:
-            lmap[state] = math.exp(-self.state_to_bg_penalty[state])
-        return lmap
-
-
-def _blinking_edge(
-        node_to_tm,
-        primary_to_tol, Q_meta,
-        edge, edge_rate,
-        fg_track, primary_track,
-        chunk_tree, chunks, node_to_chunk, chunk_edge_to_event):
+class ChunkTreeInfo(object):
     """
-    A helper function to build the blinking chunk tree.
+    The member functions are called during iteration over the trajectory.
 
     """
-    va, vb = edge
-    all_states = {False, True}
+    def __init__(self):
+        self.T = DiGraph()
+        self.edge_to_P = {}
+        self.root = None
+        self.next_idx = 0
+        self.node_to_info = {}
 
-    # Initialize the current time, the current chunk,
-    # and the current primary state.
-    tm = node_to_tm[va]
-    chunk = node_to_chunk[va]
-    primary_state = primary_track.history[va]
+    def _request_idx(self):
+        idx = self.next_idx
+        self.next_idx += 1
+        return idx
 
-    # Iterate over events sorted by time.
-    # Include an edge endpoint as a sentinel event,
-    # therefore events are in correspondence to edge segments.
-    tracks = (fg_track, primary_track)
-    sentinel = (node_to_tm[vb], None)
-    edge_events = [ev for t in tracks for ev in t.events[edge]]
-    seq = sorted((ev.tm, ev) for ev in edge_events) + [sentinel]
-    for next_tm, ev in seq:
+    def on_root(self):
+        self.root = self._request_idx()
+        return self.root
 
-        # For this segment determine the blink states allowed
-        # by the primary process.
-        if primary_to_tol[primary_state] == fg_track.name:
-            bg_allowed_states = {True}
-        else:
-            bg_allowed_states = {False, True}
-        chunk.bg_allowed_states &= bg_allowed_states
+    def on_event(self, event, upstream_cn, P):
+        """
 
-        # Add the codon transition rate penalty for the True blink state.
-        if Q_meta.has_edge(primary_state, fg_track.name):
-            rate_sum = Q_meta[primary_state][fg_track.name]['weight']
-            amount = rate_sum * edge_rate * (next_tm - tm)
-            chunk.state_to_bg_penalty[True] += amount
+        Parameters
+        ----------
+        event : Event object
+            event on the trajectory
+        upstream_cn : integer
+            upstream chunk node
+        P : networkx DiGraph
+            uniformized transition probability matrix
 
-        # If the event is a foreground transition
-        # then create a new chunk tree node and add a chunk tree edge.
-        # Otherwise if the event is from the primary track,
-        # update the primary state.
-        if ev is None:
-            # this is the sentinel event for the branch endpoint
-            pass
-        elif ev.track is fg_track:
-            next_chunk = Chunk(len(chunks), all_states)
-            chunks.append(next_chunk)
-            chunk_edge = (chunk.idx, next_chunk.idx)
-            chunk_tree.add_edge(*chunk_edge)
-            chunk_edge_to_event[chunk_edge] = ev
-            chunk = next_chunk
-        elif ev.track is primary_track:
-            if ev.sa != primary_state:
-                raise Exception
-            primary_state = ev.sb
-        else:
-            raise Exception
+        """
+        downstream_cn = self._request_idx()
+        edge = (upstream_cn, downstream_cn)
+        self.edge_to_P[edge] = P
+        self.node_to_info[upstream_cn].on_downstream_event(event)
+        self.node_to_info[downstream_cn].on_upstream_event(event)
+        return downstream_cn
 
-        # Update the time.
-        tm = next_tm
-
-    # Associate the endpoint node with the current chunk.
-    chunk.structural_nodes.add(vb)
-    node_to_chunk[vb] = chunk
+    def on_structural_node(self, chunk_node, structural_node):
+        self.node_to_info[chunk_node].on_structural_node(structural_node)
 
 
-def get_blinking_chunk_tree(T, root, node_to_tm, edge_to_rate,
-        primary_to_tol, Q_meta,
-        fg_track, primary_track):
+def trajectory_to_chunk_tree(T, edge_to_P, root, track):
     """
-    Get the chunk tree, when the foreground is a blinking process.
+    Convert a trajectory to a chunk tree.
 
-    The strategy is to define the structural root node as belonging
-    to an initial chunk, and then subsequently edges are visited in preorder.
-    Therefore the rootward endpoint of each edge will belong to a known chunk.
-    For each foreground transition observed along an edge,
-    a new chunk (and chunk edge) is added to the rooted chunk tree.
+    The purpose of the chunk tree is to facilitate resampling of states
+    on the segments of the trajectory.
+    Note that the edge_to_P input dictionary should have uniformized transition
+    probability matrices.
+
+    Parameters
+    ----------
+    T : directed networkx tree graph
+        Edge and node annotations are ignored.
+    edge_to_P : dict
+        A map from directed edges of the tree graph
+        to networkx graphs representing state transition probabilities.
+        This is a uniformized transition probability matrix.
+    root : hashable
+        This is the root node.
+        Following networkx convention, this may be anything hashable.
+    root_prior_distn : dict
+        Prior state distribution at the root.
+    track : Trajectory object
+        The chunk tree should be constructed from this trajectory object.
+
+    Returns
+    -------
+    chunk_tree : networkx DiGraph
+        rooted directed chunk tree
+    chunk_root : hashable
+        root node of the chunk tree
+    chunk_edge_to_P : dict
+        map from chunk tree edges to transition probability matrices
 
     """
-    # All foreground states.
-    all_fg_states = {False, True}
+    # Some naming conventions in this function:
+    #   ct : chunk tree
+    #   cn : chunk node
+    #   sn : structural node
+    ct_info = ChunkTreeInfo()
+    ct_root = chunk_tree_info.on_root(root_prior_distn)
+    sn_to_cn = {root : ct_root}
 
-    # Construct the root of the chunk tree, and add it to the list.
-    chunks = []
-    chunk_root = Chunk(len(chunks), all_fg_states)
-    chunk_root.structural_nodes.add(root)
-    chunks.append(chunk_root)
-
-    # Initialize the chunk tree.
-    chunk_tree = nx.DiGraph()
-
-    # Initialize the map from structural node to chunk.
-    node_to_chunk = {root : chunk_root}
-    chunk_edge_to_event = {}
-
-    # Process edges of the original tree one at a time.
+    # Iterate over edges of the structural tree.
     for edge in nx.bfs_edges(T, root):
-        _blinking_edge(
-                node_to_tm,
-                primary_to_tol, Q_meta,
-                edge, edge_to_rate[edge],
-                fg_track, primary_track,
-                chunk_tree, chunks, node_to_chunk, chunk_edge_to_event)
+        na, nb = edge
+        P = edge_to_P[edge]
+        chunk_node = sn_to_cn[na]
 
-    # Define the data restriction on the foreground states for each chunk.
-    for chunk in chunks:
-        for v in chunk.structural_nodes:
-            chunk.data_allowed_states &= fg_track.data[v]
+        # Iterate over events on the tree.
+        events = sorted(track.events[edge])
+        for ev in events:
 
-    # Return the chunk tree, its root, the list of chunk nodes,
-    # and the map from chunk tree edges to foreground events.
-    return chunk_tree, chunk_root, chunks, chunk_edge_to_event
+            # At each event a new chunk node is created.
+            chunk_node = ct_info.on_event(ev, chunk_node, P)
 
+        # Associate the chunk node with the structural node
+        # at the downstream endpoint of the edge.
+        ct_info.on_structural_node(chunk_node, structural_node)
+        sn_to_cn[nb] = chunk_node
 
-def _primary_edge(
-        node_to_tm,
-        primary_to_tol,
-        edge, edge_rate,
-        fg_track, bg_tracks,
-        chunk_tree, chunks, node_to_chunk, chunk_edge_to_event):
-    """
-    A helper function to build the codon process chunk tree.
-
-    """
-    va, vb = edge
-    all_states = set(primary_to_tol)
-
-    # Initialize the current time, the current chunk,
-    # and the current background states.
-    tm = node_to_tm[va]
-    chunk = node_to_chunk[va]
-    bg_name_to_state = {}
-    for track in bg_tracks:
-        bg_name_to_state[track.name] = track.history[va]
-
-    # Iterate over events sorted by time.
-    # Include an edge endpoint as a sentinel event,
-    # therefore events are in correspondence to edge segments.
-    tracks = [fg_track] + bg_tracks
-    sentinel = (node_to_tm[vb], None)
-    edge_events = [ev for t in tracks for ev in t.events[edge]]
-    seq = sorted((ev.tm, ev) for ev in edge_events) + [sentinel]
-    for next_tm, ev in seq:
-
-        # For this segment determine the foreground states allowed
-        # by the background states.
-        bg_allowed_states = set()
-        for candidate_state, candidate_tolname in primary_to_tol.items():
-            if bg_name_to_state[candidate_tolname]:
-                bg_allowed_states.add(candidate_state)
-        chunk.bg_allowed_states &= bg_allowed_states
-
-        # If the event is a foreground transition
-        # then create a new chunk tree node and add a chunk tree edge.
-        # Otherwise if the event is from a background track,
-        # update the background state.
-        if ev is None:
-            # this is the sentinel event for the branch endpoint
-            pass
-        elif ev.track is fg_track:
-            next_chunk = Chunk(len(chunks), all_states)
-            chunks.append(next_chunk)
-            chunk_edge = (chunk.idx, next_chunk.idx)
-            chunk_tree.add_edge(*chunk_edge)
-            chunk_edge_to_event[chunk_edge] = ev
-            chunk = next_chunk
-        else:
-            bg_name_to_state[ev.track.name] = ev.sb
-
-        # Update the time.
-        tm = next_tm
-
-    # Associate the endpoint node with the current chunk.
-    chunk.structural_nodes.add(vb)
-    node_to_chunk[vb] = chunk
-
-
-def get_primary_chunk_tree(T, root, node_to_tm, edge_to_rate,
-        primary_to_tol,
-        fg_track, tolerance_tracks,
-        ):
-    """
-    Get the chunk tree, when the foreground is the primary process.
-
-    """
-    # All foreground states.
-    all_fg_states = set(primary_to_tol)
-
-    # Construct the root of the chunk tree, and add it to the list.
-    chunks = []
-    chunk_root = Chunk(len(chunks), all_fg_states)
-    chunk_root.structural_nodes.add(root)
-    chunks.append(chunk_root)
-
-    # Initialize the chunk tree.
-    chunk_tree = nx.DiGraph()
-
-    # Initialize the map from structural node to chunk.
-    node_to_chunk = {root : chunk_root}
-    chunk_edge_to_event = {}
-
-    # Process edges of the original tree one at a time.
-    for edge in nx.bfs_edges(T, root):
-        _primary_edge(
-                node_to_tm,
-                primary_to_tol,
-                edge, edge_to_rate[edge],
-                fg_track, tolerance_tracks,
-                chunk_tree, chunks, node_to_chunk, chunk_edge_to_event)
-
-    # Define the data restriction on the foreground states for each chunk.
-    for chunk in chunks:
-        for v in chunk.structural_nodes:
-            chunk.data_allowed_states &= fg_track.data[v]
-
-    # Return the chunk tree, its root, the list of chunk nodes,
-    # and the map from chunk tree edges to foreground events.
-    return chunk_tree, chunk_root, chunks, chunk_edge_to_event
-
-
-def resample_using_chunk_tree(
-        fg_track, ev_to_P_nx,
-        chunk_tree, chunk_root, chunks, chunk_edge_to_event,
-        ):
-    """
-    Construct the per-node information, then sample the foreground states,
-    then map the foreground states per chunk back onto the foreground states
-    at structural nodes and at transition events.
-
-    """
-    edge_to_P = dict(
-            (edge, ev_to_P_nx[ev]) for edge, ev in chunk_edge_to_event.items())
-    node_to_data_lmap = dict()
-    for chunk in chunks:
-        node_to_data_lmap[chunk.idx] = chunk.get_lmap()
-    node_to_state = sample_history(
-            chunk_tree, edge_to_P, chunk_root.idx,
-            fg_track.prior_root_distn, node_to_data_lmap)
-    for chunk_idx, state in node_to_state.items():
-        for v in chunks[chunk_idx].structural_nodes:
-            fg_track.history[v] = node_to_state[chunk_idx]
-    for chunk_edge in chunk_tree.edges():
-        idxa, idxb = chunk_edge
-        ev = chunk_edge_to_event[chunk_edge]
-        ev.sa = node_to_state[idxa]
-        ev.sb = node_to_state[idxb]
+    # Return the chunk tree info.
+    return ct_info
 

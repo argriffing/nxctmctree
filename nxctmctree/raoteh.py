@@ -22,171 +22,8 @@ import math
 import nxmctree
 from nxmctree.sampling import sample_history
 
-
-def get_rates_out(Q):
-    return Q.degree_out(weight='weight')
-
-
-def get_omega(rates_out, uniformization_factor):
-    """
-    Omega is a uniformization rate in the notation of Rao and Teh.
-
-    """
-    return uniformization_factor * max(rates_out.values())
-
-
-def get_uniformized_P(Q, rates_out, omega):
-    """
-
-    Parameters
-    ----------
-    Q : directed weighted networkx graph
-        Rate matrix.
-    rates_out : dict
-        map from state to sum of rates out of the state
-    omega : float
-        a rate larger than the max rate out
-
-    Returns
-    -------
-    P : directed weighted networkx graph
-        Transition probability matrix.
-
-    """
-    P = nx.DiGraph()
-    for sa in Q:
-        p = 1.0 - rates_out[sa] / omega
-        P.add_edge(sa, sa, weight=p)
-        for sb in Q[sa]:
-            p = Q[sa][sb]['weight'] / omega
-            P.add_edge(sa, sb, weight=p)
-    return P
-
-
-class ChunkNodeInfo(object):
-    def __init__(self):
-        self.structural_nodes = []
-        self.upstream_events = []
-        self.downstream_events = []
-
-    def on_structural_node(self, node):
-        self.structural_nodes.append(node)
-
-    def on_upstream_event(self, event):
-        self.upstream_events.append(event)
-
-    def on_downstream_event(self, event):
-        self.downstream_events.append(event)
-
-
-class ChunkTreeInfo(object):
-    """
-    The on_x() member functions are called during iteration over the trajectory.
-
-    """
-    def __init__(self):
-        self.T = DiGraph()
-        self.edge_to_P = {}
-        self.root = None
-        self.next_idx = 0
-        self.node_to_info = {}
-
-    def _request_idx(self):
-        idx = self.next_idx
-        self.next_idx += 1
-        return idx
-
-    def on_root(self):
-        self.root = self._request_idx()
-        return self.root
-
-    def on_event(self, event, upstream_cn, P):
-        """
-
-        Parameters
-        ----------
-        event : Event object
-            event on the trajectory
-        upstream_cn : integer
-            upstream chunk node
-        P : networkx DiGraph
-            uniformized transition probability matrix
-
-        """
-        downstream_cn = self._request_idx()
-        edge = (upstream_cn, downstream_cn)
-        self.edge_to_P[edge] = P
-        self.node_to_info[upstream_cn].on_downstream_event(event)
-        self.node_to_info[downstream_cn].on_upstream_event(event)
-        return downstream_cn
-
-    def on_structural_node(self, chunk_node, structural_node):
-        self.node_to_info[chunk_node].on_structural_node(structural_node)
-
-
-def trajectory_to_chunk_tree(T, edge_to_P, root, track):
-    """
-    Convert a trajectory to a chunk tree.
-
-    The purpose of the chunk tree is to facilitate resampling of states
-    on the segments of the trajectory.
-    Note that the edge_to_P input dictionary should have uniformized transition
-    probability matrices.
-
-    Parameters
-    ----------
-    T : directed networkx tree graph
-        Edge and node annotations are ignored.
-    edge_to_P : dict
-        A map from directed edges of the tree graph
-        to networkx graphs representing state transition probabilities.
-        This is a uniformized transition probability matrix.
-    root : hashable
-        This is the root node.
-        Following networkx convention, this may be anything hashable.
-    root_prior_distn : dict
-        Prior state distribution at the root.
-    track : Trajectory object
-        The chunk tree should be constructed from this trajectory object.
-
-    Returns
-    -------
-    chunk_tree : networkx DiGraph
-        rooted directed chunk tree
-    chunk_root : hashable
-        root node of the chunk tree
-    chunk_edge_to_P : dict
-        map from chunk tree edges to transition probability matrices
-
-    """
-    # Some naming conventions in this function:
-    #   ct : chunk tree
-    #   cn : chunk node
-    #   sn : structural node
-    ct_info = ChunkTreeInfo()
-    ct_root = chunk_tree_info.on_root(root_prior_distn)
-    sn_to_cn = {root : ct_root}
-
-    # Iterate over edges of the structural tree.
-    for edge in nx.bfs_edges(T, root):
-        na, nb = edge
-        P = edge_to_P[edge]
-        chunk_node = sn_to_cn[na]
-
-        # Iterate over events on the tree.
-        events = sorted(track.events[edge])
-        for ev in events:
-
-            # At each event a new chunk node is created.
-            chunk_node = ct_info.on_event(ev, chunk_node, P)
-
-        # Associate the chunk node with the structural node
-        # at the downstream endpoint of the edge.
-        ct_info.on_structural_node(chunk_node, structural_node)
-        sn_to_cn[nb] = chunk_node
-
-    # Return the chunk tree info.
-    return ct_info
+from .uniformization import get_rates_out, get_omega, get_uniformized_P
+from .chunking import ChunkNodeInfo, ChunkTreeInfo, trajectory_to_chunk_tree
 
 
 def resample_states(
@@ -265,39 +102,52 @@ def get_poisson_info(T, root, edge_to_Q, edge_to_rate,
 
     """
     uniformization_factor = 2
-    edge_to_rates_out = {}
-    #TODO unfinished...
+    rates_out = uniformization.get_rates_out(Q)
+    omega = get_omega(rates_out, uniformization_factor)
+    edge_to_P = {}
+    edge_to_poisson_rates = {}
+    for edge, Q in edge_to_Q.items():
+        edge_rate = edge_to_rate[edge]
+        P = get_uniformized_P(Q, rates_out, omega)
+        edge_to_P[edge] = P
+        poisson_rates = dict((s, edge_rate * r) for s, r in rates_out.items())
+        edge_to_poisson_rates[edge] = poisson_rates
+    return edge_to_P, edge_to_poisson_rates
 
 
-def get_edge_to_state_to_poisson_rate(T, root, edge_to_Q, edge_to_rate):
+def add_poisson_events(T, root, node_to_tm, edge_to_poisson_rates, track):
     """
-    Compute poisson rates.
-
-    This depends on the 
-
-    """
-    for 
-def get_rates_out(Q):
-    return Q.degree_out(weight='weight')
-
-
-def get_omega(rates_out, uniformization_factor):
-    """
-    Omega is a uniformization rate in the notation of Rao and Teh.
+    Add poisson events onto edges on a track.
 
     """
-    return uniformization_factor * max(rates_out.values())
+    for edge in T.edges():
+        na, nb = edge
+        sa = track.history[na]
+        sb = track.history[nb]
+        tma = node_to_tm[na]
+        tmb = node_to_tm[nb]
+        poisson_rates = edge_to_poisson_rates[edge]
 
+        # Create triples of (initial time, final time, poisson rate).
+        tm = tma
+        state = sa
+        triples = []
+        for ev in sorted(T.events[edge]):
+            triples.append((tm, ev.tm, poisson_rates[state]))
+            tm = ev.tm
+        triples.append((tm, tmb, poisson_rates[state]))
 
-def get_uniformized_P(Q, rates_out, omega):
+        # For each triple, sample some poisson event times.
+        new_events = []
+        for ta, tb, poisson_rate in triples:
+            t = ta
+            while True:
+                t += expovariate(poisson_rate)
+                if t >= tb:
+                    break
+                ev = Event(track=track, tm=t, sa=None, sb=None)
+                new_events.append(ev)
 
-
-def add_poisson_events(T, root,
-        node_to_tm, bfs_edges,
-        edge_to_state_to_poisson_rate, track):
-    """
-    Add poisson events onto a track.
-
-    """
-    pass
+        # Extend the list of events with the new events.
+        track.events[edge].extend(new_events)
 
