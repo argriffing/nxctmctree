@@ -215,6 +215,37 @@ def main():
     # TODO compute max likelihood estimates
     # using EM with conditionally sampled histories using Rao-Teh.
 
+    # Initialize a blank track for each leaf pattern, for EM with Rao-Teh.
+    tracks = []
+    npatterns = len(pattern_to_counts)
+    for i in range(npatterns):
+        track = raoteh.get_feasible_blank_trajectory(
+                T, root, root_prior_distn, edge_to_Q, node_to_tm)
+        tracks.append(track)
+
+    # Get the leaf states.
+    # This sampled data is in pattern_to_counts.
+    
+    # and use Rao-Teh to sample a bunch of trajectories
+    # given these leaf states.
+
+    # Define initial parameter values for the expectation maximization.
+    x0_edge_rates = np.array([0.2, 0.2, 0.2, 0.2, 0.2])
+    x0_nt_probs = np.array([0.25, 0.25, 0.25, 0.25])
+    x0_kappa = 3.0
+    x0 = pack_params(edges, x0_edge_rates, x0_nt_probs, x0_kappa)
+    unpacked = unpack_params(edges, x0)
+    edge_to_rate, Q, nt_distn, kappa, penalty = unpacked
+    edge_to_Q = dict((e, Q) for e in edges)
+    root_prior_distn = nt_distn
+
+    # Do some EM iterations.
+    nsampled = 0
+    nburn = 10
+    while True:
+
+        # Initialize summaries of the Rao-Teh sampled trajectories.
+        pass
 
 
 if __name__ == '__main__':

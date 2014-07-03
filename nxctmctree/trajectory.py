@@ -72,21 +72,27 @@ class FullTrackSummary(object):
         self.edge_to_transition_to_count = {}
         self.edge_to_state_to_time = {}
 
-    def on_root_state(self, root_state):
-        self.root_state_to_count[root_state] += 1
+    def on_root_state(self, root_state, track_weight=None):
+        if track_weight is None:
+            track_weight = 1
+        self.root_state_to_count[root_state] += track_weight
 
-    def on_transition(self, edge, sa, sb):
+    def on_transition(self, edge, sa, sb, track_weight=None):
+        if track_weight is None:
+            track_weight = 1
         transition = (sa, sb)
         if edge not in self.edge_to_transition_to_count:
             self.edge_to_transition_to_count[edge] = defaultdict(int)
         transition_to_count = self.edge_to_transition_to_count[edge]
-        transition_to_count[transition] += 1
+        transition_to_count[transition] += track_weight
 
-    def on_dwell(self, edge, state, dwell):
+    def on_dwell(self, edge, state, dwell, track_weight=None):
+        if track_weight is None:
+            track_weight = 1
         if edge not in self.edge_to_state_to_time:
             self.edge_to_state_to_time[edge] = defaultdict(float)
         state_to_time = self.edge_to_state_to_time[edge]
-        state_to_time[state] += dwell
+        state_to_time[state] += dwell * track_weight
 
     def assert_valid_event(self, state, tm, ev):
         if ev.sa == ev.sb:
@@ -96,8 +102,14 @@ class FullTrackSummary(object):
         if ev.tm <= tm:
             raise Exception('the time of the transition is invalid')
 
-    def on_track(self, track):
-        self.on_root_state(track.history[self.root])
+    def on_track(self, track, track_weight=None):
+        """
+        The track weight could be used for multiplicity of site patterns.
+
+        """
+        if track_weight is None:
+            track_weight = 1
+        self.on_root_state(track.history[self.root], track_weight)
         for edge in self.bfs_edges:
             na, nb = edge
             tma = self.node_to_tm[na]
@@ -107,11 +119,11 @@ class FullTrackSummary(object):
             events = sorted(track.events[edge])
             for ev in events:
                 self.assert_valid_event(state, tm, ev)
-                self.on_dwell(edge, state, ev.tm - tm)
-                self.on_transition(edge, ev.sa, ev.sb)
+                self.on_dwell(edge, state, ev.tm - tm, track_weight)
+                self.on_transition(edge, ev.sa, ev.sb, track_weight)
                 tm = ev.tm
                 state = ev.sb
-            self.on_dwell(edge, state, tmb - tm)
+            self.on_dwell(edge, state, tmb - tm, track_weight)
 
 
 class LightTrajectory(object):
