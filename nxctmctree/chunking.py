@@ -32,7 +32,7 @@ class ChunkTreeInfo(object):
 
     """
     def __init__(self):
-        self.T = DiGraph()
+        self.T = nx.DiGraph()
         self.edge_to_P = {}
         self.root = None
         self.next_idx = 0
@@ -40,6 +40,8 @@ class ChunkTreeInfo(object):
 
     def _request_idx(self):
         idx = self.next_idx
+        self.T.add_node(idx)
+        self.node_to_info[idx] = ChunkNodeInfo()
         self.next_idx += 1
         return idx
 
@@ -62,6 +64,7 @@ class ChunkTreeInfo(object):
         """
         downstream_cn = self._request_idx()
         edge = (upstream_cn, downstream_cn)
+        self.T.add_edge(*edge)
         self.edge_to_P[edge] = P
         self.node_to_info[upstream_cn].on_downstream_event(event)
         self.node_to_info[downstream_cn].on_upstream_event(event)
@@ -69,6 +72,32 @@ class ChunkTreeInfo(object):
 
     def on_structural_node(self, chunk_node, structural_node):
         self.node_to_info[chunk_node].on_structural_node(structural_node)
+
+    def check_structural_node_partition(self, full_sn_set):
+        """
+        The structural nodes should be partitioned among chunk nodes.
+
+        This is for testing.
+
+        """
+        partial_sn_set = set()
+        for cn, cn_info in self.node_to_info.items():
+            sn_set = set(cn_info.structural_nodes)
+            if sn_set & partial_sn_set:
+                raise Exception('the structural node sets '
+                        'belonging to chunk nodes are not mutually exclusive')
+            partial_sn_set.update(sn_set)
+        extras = partial_sn_set - full_sn_set
+        if extras:
+            raise Exception('the structural node sets '
+                    'belonging to chunk nodes contain the following '
+                    'unrecognized structural nodes: %s' % extras)
+        missing = full_sn_set - partial_sn_set
+        if missing:
+            raise Exception('the structural node sets '
+                    'belonging to chunk nodes do not define an exhaustive '
+                    'partition, and in particular are missing the following '
+                    'structural nodes: %s' % missing)
 
 
 def trajectory_to_chunk_tree(T, edge_to_P, root, track):
@@ -91,8 +120,6 @@ def trajectory_to_chunk_tree(T, edge_to_P, root, track):
     root : hashable
         This is the root node.
         Following networkx convention, this may be anything hashable.
-    root_prior_distn : dict
-        Prior state distribution at the root.
     track : Trajectory object
         The chunk tree should be constructed from this trajectory object.
 
@@ -111,7 +138,10 @@ def trajectory_to_chunk_tree(T, edge_to_P, root, track):
     #   cn : chunk node
     #   sn : structural node
     ct_info = ChunkTreeInfo()
-    ct_root = chunk_tree_info.on_root(root_prior_distn)
+    ct_root = ct_info.on_root()
+
+    # Associate the chunk tree root with the structural root.
+    ct_info.on_structural_node(ct_root, root)
     sn_to_cn = {root : ct_root}
 
     # Iterate over edges of the structural tree.
@@ -129,8 +159,12 @@ def trajectory_to_chunk_tree(T, edge_to_P, root, track):
 
         # Associate the chunk node with the structural node
         # at the downstream endpoint of the edge.
-        ct_info.on_structural_node(chunk_node, structural_node)
+        ct_info.on_structural_node(chunk_node, nb)
         sn_to_cn[nb] = chunk_node
+
+    # Check that the structural nodes are partitioned
+    # exhaustively and mutually exclusively.
+    ct_info.check_structural_node_partition(set(T))
 
     # Return the chunk tree info.
     return ct_info

@@ -17,6 +17,7 @@ import math
 import random
 from collections import defaultdict
 from itertools import permutations
+from functools import partial
 
 import numpy as np
 import networkx as nx
@@ -113,9 +114,9 @@ def main():
 
     # Define edge-specific rate scaling factors.
     #edge_rates = np.array([0.01, 0.02, 0.03, 0.04, 0.05])
-    #edge_rates = np.array([0.1, 0.2, 0.3, 0.4, 0.5])
+    edge_rates = np.array([0.1, 0.2, 0.3, 0.4, 0.5])
     #edge_rates = np.array([1.1, 1.2, 1.3, 1.4, 1.5])
-    edge_rates = np.array([1, 2, 3, 4, 5])
+    #edge_rates = np.array([1, 2, 3, 4, 5])
 
     # Define HKY parameter values.
     nt_probs = np.array([0.1, 0.2, 0.3, 0.4])
@@ -197,7 +198,7 @@ def main():
 
     x_sim = pack_params(edges, edge_rates, nt_probs, kappa)
     print('objective function value using the parameters used for sampling:')
-    print(objective(x_sim))
+    print(objective(T, root, edges, full_track_summary, x_sim))
     print()
 
     f = partial(objective, T, root, edges, full_track_summary)
@@ -250,8 +251,8 @@ def main():
     pattern_to_data = {}
     set_of_all_states = set('ACGT')
     for idx, pattern in enumerate(pattern_to_count):
-        print('burning in the trajectory',
-                'for pattern', idx+1, 'of', npatterns, '...')
+        #print('burning in the trajectory',
+                #'for pattern', idx+1, 'of', npatterns, '...')
         
         # Create the data representation.
         leaf_to_state = zip(leaves, pattern)
@@ -286,7 +287,7 @@ def main():
 
         # Do a few Rao-Teh samples for each pattern within each EM iteration.
         for idx, (pattern, track) in enumerate(pattern_to_track.items()):
-            print('sampling Rao-Teh trajectories for pattern', idx+1, '...')
+            #print('sampling Rao-Teh trajectories for pattern', idx+1, '...')
             count = pattern_to_count[pattern]
             node_to_data_fset = pattern_to_data[pattern]
 
@@ -301,11 +302,12 @@ def main():
         # This is the M step of EM.
         f = partial(objective, T, root, edges, full_track_summary)
         result = minimize(f, packed, method='L-BFGS-B')
-        print(result)
+        #print(result)
         packed = result.x
         unpacked = unpack_params(edges, packed)
         edge_to_rate, Q, nt_distn, kappa, penalty = unpacked
         print('max likelihood estimates from sampled trajectories:')
+        print('penalized negative log likelihood:', result.fun)
         print('edge to rate:', edge_to_rate)
         print('nt distn:', nt_distn)
         print('kappa:', kappa)

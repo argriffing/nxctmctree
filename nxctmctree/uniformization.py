@@ -29,7 +29,7 @@ def get_rates_out(Q):
         map from state to the total rate of leaving the state
 
     """
-    return Q.degree_out(weight='weight')
+    return Q.out_degree(weight='weight')
 
 
 def get_omega(rates_out, uniformization_factor):

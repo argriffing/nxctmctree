@@ -17,13 +17,17 @@ forward sampling using the Gillespie algorithm.
 """
 from __future__ import division, print_function, absolute_import
 
+from random import expovariate
 import math
+
+import networkx as nx
 
 import nxmctree
 from nxmctree.sampling import sample_history
 
 from .uniformization import get_rates_out, get_omega, get_uniformized_P
 from .chunking import ChunkNodeInfo, ChunkTreeInfo, trajectory_to_chunk_tree
+from .trajectory import LightTrajectory, Event, get_node_to_tm
 
 
 def resample_states(
@@ -52,10 +56,20 @@ def resample_states(
     # Resample the states at the chunk nodes.
     cn_to_state = sample_history(ct_info.T, ct_info.edge_to_P, ct_info.root,
             root_prior_distn, chunk_node_to_data_lmap)
+
+    # Check that all chunk nodes have been assigned states.
+    missing = set(ct_info.node_to_info) - set(cn_to_state)
+    if missing:
+        raise Exception('the following chunk nodes were not included '
+                'in the history sampled on the chunk tree: %s' % missing)
     
     # Propagate the sampled chunk node states back onto the
     # events and the structural nodes.
     for chunk_node, state in cn_to_state.items():
+        if state is None:
+            raise Exception('chunk node % has state %s' % (chunk_node, state))
+
+        # Get the history and event information for the chunk node.
         cn_info = ct_info.node_to_info[chunk_node]
 
         # Update the track history at the structural nodes.
@@ -69,6 +83,12 @@ def resample_states(
         # Update the final state of transitions corresponding to events.
         for ev in cn_info.upstream_events:
             ev.init_sb(state)
+
+    # Check that the track history is complete.
+    for node, state in track.history.items():
+        if state is None:
+            raise Exception('failed to set the history '
+                    'of structural node %s' % node)
 
 
 def get_poisson_info(T, root, edge_to_Q, edge_to_rate,
@@ -102,15 +122,16 @@ def get_poisson_info(T, root, edge_to_Q, edge_to_rate,
 
     """
     uniformization_factor = 2
-    rates_out = uniformization.get_rates_out(Q)
-    omega = get_omega(rates_out, uniformization_factor)
     edge_to_P = {}
     edge_to_poisson_rates = {}
     for edge, Q in edge_to_Q.items():
+        rates_out = get_rates_out(Q)
+        omega = get_omega(rates_out, uniformization_factor)
         edge_rate = edge_to_rate[edge]
-        P = get_uniformized_P(Q, rates_out, omega)
-        edge_to_P[edge] = P
-        poisson_rates = dict((s, edge_rate * r) for s, r in rates_out.items())
+        edge_to_P[edge] = get_uniformized_P(Q, rates_out, omega)
+        poisson_rates = {}
+        for state, rate_out in rates_out.items():
+            poisson_rates[state] = (omega - rate_out) * edge_rate
         edge_to_poisson_rates[edge] = poisson_rates
     return edge_to_P, edge_to_poisson_rates
 
@@ -132,9 +153,10 @@ def add_poisson_events(T, root, node_to_tm, edge_to_poisson_rates, track):
         tm = tma
         state = sa
         triples = []
-        for ev in sorted(T.events[edge]):
+        for ev in sorted(track.events[edge]):
             triples.append((tm, ev.tm, poisson_rates[state]))
             tm = ev.tm
+            state = ev.sb
         triples.append((tm, tmb, poisson_rates[state]))
 
         # For each triple, sample some poisson event times.
@@ -164,8 +186,8 @@ def get_feasible_blank_trajectory(
     """
     history = dict((v, None) for v in T)
     events = dict((e, None) for e in T.edges())
-    track = Trajectory(name='mytrack', history=history, events=events)
-    for edge, Q in edge_to_Q.edges():
+    track = LightTrajectory(name='mytrack', history=history, events=events)
+    for edge, Q in edge_to_Q.items():
         na, nb = edge
         tma = node_to_tm[na]
         tmb = node_to_tm[nb]
@@ -205,10 +227,14 @@ def gen_raoteh_trajectories(
             node_to_tm, bfs_edges)
 
     # Initialize a blank track if none has been provided.
-    if initial_track is not None:
-        raise NotImplementedError
-    track = get_feasible_blank_trajectory(
-            T, root, root_prior_distn, edge_to_Q, node_to_tm)
+    # Otherwise prepare the provided track for state sampling.
+    if initial_track is None:
+        track = get_feasible_blank_trajectory(
+                T, root, root_prior_distn, edge_to_Q, node_to_tm)
+    else:
+        track = initial_track
+        add_poisson_events(T, root, node_to_tm, edge_to_poisson_rates, track)
+        track.clear_state_labels()
 
     # Sample a bunch of tracks.
     nsampled = 0
@@ -230,9 +256,9 @@ def gen_raoteh_trajectories(
         if ntrajectories is not None and nsampled >= ntrajectories:
             return
 
-        # Reset states on the trajectory to None.
-        track.clear_state_labels()
-
         # Add poisson sampled events to the trajectory.
         add_poisson_events(T, root, node_to_tm, edge_to_poisson_rates, track)
+
+        # Clear trajectory state labels.
+        track.clear_state_labels()
 
