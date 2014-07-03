@@ -197,6 +197,12 @@ def gen_raoteh_trajectories(
     """
     # Extract properties of the tree.
     node_to_tm = get_node_to_tm(T, root, edge_to_blen)
+    bfs_edges = list(nx.bfs_edges(T, root))
+
+    # Get structures to help with uniformization.
+    edge_to_P, edge_to_poisson_rates = get_poisson_info(
+            T, root, edge_to_Q, edge_to_rate,
+            node_to_tm, bfs_edges)
 
     # Initialize a blank track if none has been provided.
     if initial_track is not None:
@@ -209,8 +215,12 @@ def gen_raoteh_trajectories(
     while True:
 
         # Sample states on the track.
+        resample_states(
+                T, edge_to_P, root, root_prior_distn, node_to_data_fset,
+                track, set_of_all_states)
 
         # Clear the self-transition events.
+        track.remove_self_transitions()
 
         # Yield the track.
         yield track
@@ -221,6 +231,8 @@ def gen_raoteh_trajectories(
             return
 
         # Reset states on the trajectory to None.
+        track.clear_state_labels()
 
         # Add poisson sampled events to the trajectory.
+        add_poisson_events(T, root, node_to_tm, edge_to_poisson_rates, track)
 
