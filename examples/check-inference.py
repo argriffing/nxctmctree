@@ -25,17 +25,10 @@ import networkx as nx
 from scipy.optimize import minimize
 
 import nxctmctree
+from nxctmctree import gillespie
+from nxctmctree import raoteh
 from nxctmctree.likelihood import get_trajectory_log_likelihood
 from nxctmctree.trajectory import get_node_to_tm, FullTrackSummary
-
-#TODO remove the word 'gillespie' from these function names,
-# and just import the module.
-from nxctmctree.gillespie import (
-        get_gillespie_trajectory, gen_gillespie_trajectories,
-        get_incomplete_gillespie_sample,
-        expand_Q,
-        )
-from nxctmctree import raoteh
 
 
 def create_rate_matrix(nt_probs, kappa):
@@ -124,7 +117,7 @@ def main():
     edge_to_blen = dict((e, 1) for e in edges)
     Q, nt_distn = create_rate_matrix(nt_probs, kappa)
     root_prior_distn = nt_distn
-    state_to_rate, state_to_distn = expand_Q(Q)
+    state_to_rate, state_to_distn = gillespie.expand_Q(Q)
     edge_to_Q = dict((e, Q) for e in edges)
     edge_to_state_to_rate = dict((e, state_to_rate) for e in edges)
     edge_to_state_to_distn = dict((e, state_to_distn) for e in edges)
@@ -144,7 +137,7 @@ def main():
     pattern_to_count = defaultdict(int)
     nsamples_gillespie = 10000
     node_to_state_to_count = dict((v, defaultdict(int)) for v in T)
-    for track in gen_gillespie_trajectories(T, root, root_prior_distn,
+    for track in gillespie.gen_trajectories(T, root, root_prior_distn,
             edge_to_rate, edge_to_blen, edge_to_Q, nsamples_gillespie):
         full_track_summary.on_track(track)
         for v, state in track.history.items():

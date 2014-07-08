@@ -30,7 +30,6 @@ def unsafe_dict_random_choice(d):
             return i
 
 
-#FIXME copypasted from nxmctree.sampling
 def dict_random_choice(d):
     total = sum(d.values())
     x = uniform(0, total)
@@ -40,7 +39,6 @@ def dict_random_choice(d):
             return i
 
 
-#FIXME copypasted from an example
 def expand_Q(Q):
     state_to_rate = Q.out_degree(weight='weight')
     state_to_distn = dict()
@@ -62,7 +60,7 @@ def expand_edge_to_Q(edge_to_Q):
     return edge_to_state_to_rate, edge_to_state_to_distn
 
 
-def _get_gillespie_trajectory(T, root, root_prior_distn,
+def _get_trajectory(T, root, root_prior_distn,
         edge_to_rate, edge_to_blen, node_to_tm, bfs_edges,
         edge_to_state_to_rate, edge_to_state_to_distn,
         ):
@@ -110,7 +108,7 @@ def _get_gillespie_trajectory(T, root, root_prior_distn,
     return track
 
 
-def get_gillespie_trajectory(T, root, root_prior_distn,
+def get_trajectory(T, root, root_prior_distn,
         edge_to_rate, edge_to_blen, edge_to_Q):
     """
     Return map from node to sampled state.
@@ -137,13 +135,13 @@ def get_gillespie_trajectory(T, root, root_prior_distn,
     edge_to_state_to_rate, edge_to_state_to_distn = expand_edge_to_Q(edge_to_Q)
 
     # Sample a track.
-    track = _get_gillespie_trajectory(T, root, root_prior_distn,
+    track = _get_trajectory(T, root, root_prior_distn,
             edge_to_rate, edge_to_blen, node_to_tm, bfs_edges,
             edge_to_state_to_rate, edge_to_state_to_distn)
     return track
 
 
-def gen_gillespie_trajectories(T, root, root_prior_distn,
+def gen_trajectories(T, root, root_prior_distn,
         edge_to_rate, edge_to_blen, edge_to_Q, ntrajectories=None):
     """
     Avoid redundant calculations shared across trajectories.
@@ -174,14 +172,14 @@ def gen_gillespie_trajectories(T, root, root_prior_distn,
     # Sample a bunch of tracks.
     nsampled = 0
     while ntrajectories is None or nsampled < ntrajectories:
-        track = _get_gillespie_trajectory(T, root, root_prior_distn,
+        track = _get_trajectory(T, root, root_prior_distn,
                 edge_to_rate, edge_to_blen, node_to_tm, bfs_edges,
                 edge_to_state_to_rate, edge_to_state_to_distn)
         yield track
         nsampled += 1
 
 
-def get_incomplete_gillespie_sample(T, root, root_prior_distn,
+def get_incomplete_sample(T, root, root_prior_distn,
         edge_to_rate, edge_to_blen,
         edge_to_state_to_rate, edge_to_state_to_distn):
     """

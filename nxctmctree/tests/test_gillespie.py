@@ -17,10 +17,9 @@ from numpy.testing import assert_allclose
 
 from scipy.optimize import minimize
 
-import nxctmctree
+from nxctmctree import gillespie
 from nxctmctree.likelihood import get_trajectory_log_likelihood
 from nxctmctree.trajectory import get_node_to_tm, FullTrackSummary
-from nxctmctree.gillespie import gen_gillespie_trajectories
 
 
 def create_rate_matrix(nt_probs, kappa):
@@ -103,7 +102,7 @@ def test_gillespie():
     # leaf state patterns.
     full_track_summary = FullTrackSummary(T, root, edge_to_blen)
     nsamples_gillespie = 10000
-    for track in gen_gillespie_trajectories(T, root, root_prior_distn,
+    for track in gillespie.gen_trajectories(T, root, root_prior_distn,
             edge_to_rate, edge_to_blen, edge_to_Q, nsamples_gillespie):
         full_track_summary.on_track(track)
 
