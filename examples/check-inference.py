@@ -27,20 +27,15 @@ from scipy.optimize import minimize
 import nxctmctree
 from nxctmctree.likelihood import get_trajectory_log_likelihood
 from nxctmctree.trajectory import get_node_to_tm, FullTrackSummary
+
+#TODO remove the word 'gillespie' from these function names,
+# and just import the module.
 from nxctmctree.gillespie import (
         get_gillespie_trajectory, gen_gillespie_trajectories,
-        get_incomplete_gillespie_sample)
+        get_incomplete_gillespie_sample,
+        expand_Q,
+        )
 from nxctmctree import raoteh
-
-
-def expand_Q(Q):
-    state_to_rate = Q.out_degree(weight='weight')
-    state_to_distn = dict()
-    for sa in Q:
-        rate = state_to_rate[sa]
-        distn = dict((sb, Q[sa][sb]['weight'] / rate) for sb in Q[sa])
-        state_to_distn[sa] = distn
-    return state_to_rate, state_to_distn
 
 
 def create_rate_matrix(nt_probs, kappa):
