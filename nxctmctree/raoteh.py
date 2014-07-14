@@ -38,22 +38,20 @@ def resample_states(
     ct_info = trajectory_to_chunk_tree(T, edge_to_P, root, track)
 
     # Propagate the data constraints from structural nodes to chunk nodes.
-    print('found', len(ct_info.T), 'chunk nodes')
+    #print('found', len(ct_info.T), 'chunk nodes')
     chunk_node_to_data_fset = {}
     for cn in ct_info.T:
         cn_info = ct_info.node_to_info[cn]
         fset = set(set_of_all_states)
-        #print('fset, before:', fset)
         nstructural = len(cn_info.structural_nodes)
-        print('found', nstructural, 'structural nodes in chunk node', cn)
+        #print('found', nstructural, 'structural nodes in chunk node', cn)
         for sn in cn_info.structural_nodes:
             fset &= node_to_data_fset[sn]
         if not fset:
             raise Exception('chunk node has no feasible state')
-        #print('fset, after:', fset)
-        forbidden = set(set_of_all_states) - fset
-        if forbidden:
-            print('forbidden states at chunk node', cn, ':', forbidden)
+        #forbidden = set(set_of_all_states) - fset
+        #if forbidden:
+            #print('forbidden states at chunk node', cn, ':', forbidden)
         chunk_node_to_data_fset[cn] = fset
 
     # Because nxmctree does not have flexible functions,
@@ -205,12 +203,19 @@ def get_feasible_blank_trajectory(
 
         # Use the diameter of the transition rate matrix graph
         # to decide how many events to place on the edge.
+        # To create a feasible path allowing the worst case data,
+        # we need the number of events at least equal to the diameter
+        # of the rate matrix.
         diameter = nx.diameter(Q)
-        dt = (tmb - tma) / diameter
-        for i in range(1, diameter):
+        nsegments = diameter + 1
+        dt = (tmb - tma) / nsegments
+        ev_list = []
+        for i in range(1, nsegments):
             tm = tma + dt * i
             ev = Event(track=track, tm=tm, sa=None, sb=None)
-            track.events[edge].append(ev)
+            ev_list.append(ev)
+        #print('diameter:', diameter, '#events:', len(ev_list))
+        track.events[edge] = ev_list
 
     # Return the track.
     return track

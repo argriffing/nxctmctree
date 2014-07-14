@@ -250,7 +250,6 @@ def main():
                 fset = {leaf_to_state[node]}
             else:
                 fset = set_of_all_states
-            print(fset)
             node_to_data_fset[node] = fset
 
         # Save the data representation constructed for each pattern.
