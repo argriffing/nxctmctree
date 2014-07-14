@@ -135,7 +135,7 @@ def main():
     # leaf state patterns.
     full_track_summary = FullTrackSummary(T, root, edge_to_blen)
     pattern_to_count = defaultdict(int)
-    nsamples_gillespie = 100000
+    nsamples_gillespie = 1000000
     node_to_state_to_count = dict((v, defaultdict(int)) for v in T)
     for track in gillespie.gen_trajectories(T, root, root_prior_distn,
             edge_to_rate, edge_to_blen, edge_to_Q, nsamples_gillespie):
