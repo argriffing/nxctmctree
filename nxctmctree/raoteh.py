@@ -38,13 +38,23 @@ def resample_states(
     ct_info = trajectory_to_chunk_tree(T, edge_to_P, root, track)
 
     # Propagate the data constraints from structural nodes to chunk nodes.
+    print('found', len(ct_info.T), 'chunk nodes')
     chunk_node_to_data_fset = {}
-    for chunk_node in ct_info.T:
-        cn_info = ct_info.node_to_info[chunk_node]
+    for cn in ct_info.T:
+        cn_info = ct_info.node_to_info[cn]
         fset = set(set_of_all_states)
+        #print('fset, before:', fset)
+        nstructural = len(cn_info.structural_nodes)
+        print('found', nstructural, 'structural nodes in chunk node', cn)
         for sn in cn_info.structural_nodes:
             fset &= node_to_data_fset[sn]
-        chunk_node_to_data_fset[chunk_node] = fset
+        if not fset:
+            raise Exception('chunk node has no feasible state')
+        #print('fset, after:', fset)
+        forbidden = set(set_of_all_states) - fset
+        if forbidden:
+            print('forbidden states at chunk node', cn, ':', forbidden)
+        chunk_node_to_data_fset[cn] = fset
 
     # Because nxmctree does not have flexible functions,
     # convert the fset constraints to lmap constraints.

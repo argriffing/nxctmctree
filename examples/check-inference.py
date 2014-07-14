@@ -135,7 +135,7 @@ def main():
     # leaf state patterns.
     full_track_summary = FullTrackSummary(T, root, edge_to_blen)
     pattern_to_count = defaultdict(int)
-    nsamples_gillespie = 10000
+    nsamples_gillespie = 100000
     node_to_state_to_count = dict((v, defaultdict(int)) for v in T)
     for track in gillespie.gen_trajectories(T, root, root_prior_distn,
             edge_to_rate, edge_to_blen, edge_to_Q, nsamples_gillespie):
@@ -243,13 +243,14 @@ def main():
                 #'for pattern', idx+1, 'of', npatterns, '...')
         
         # Create the data representation.
-        leaf_to_state = zip(leaves, pattern)
+        leaf_to_state = dict(zip(leaves, pattern))
         node_to_data_fset = {}
         for node in T:
-            if node in leaf_to_state:
+            if node in leaves:
                 fset = {leaf_to_state[node]}
             else:
                 fset = set_of_all_states
+            print(fset)
             node_to_data_fset[node] = fset
 
         # Save the data representation constructed for each pattern.
