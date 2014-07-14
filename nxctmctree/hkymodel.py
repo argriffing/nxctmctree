@@ -35,7 +35,7 @@ def create_rate_matrix(nt_probs, kappa):
     return Q, nt_distn
 
 
-def pack_params(edges, edge_rates, nt_probs, kappa):
+def pack_params(edge_rates, nt_probs, kappa):
     params = []
     params.extend(edge_rates)
     params.extend(nt_probs)

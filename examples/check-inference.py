@@ -141,10 +141,10 @@ def main():
     x0_edge_rates = np.array([0.2, 0.2, 0.2, 0.2, 0.2])
     x0_nt_probs = np.array([0.25, 0.25, 0.25, 0.25])
     x0_kappa = 3.0
-    x0 = hkymodel.pack_params(edges, x0_edge_rates, x0_nt_probs, x0_kappa)
+    x0 = hkymodel.pack_params(x0_edge_rates, x0_nt_probs, x0_kappa)
     x0 = np.array(x0)
 
-    x_sim = hkymodel.pack_params(edges, edge_rates, nt_probs, kappa)
+    x_sim = hkymodel.pack_params(edge_rates, nt_probs, kappa)
     x_sum = np.array(x_sim)
     print('objective function value using the parameters used for sampling:')
     print(objective(T, root, edges, full_track_summary, x_sim))
@@ -185,7 +185,7 @@ def main():
     x0_edge_rates = np.array([0.2, 0.2, 0.2, 0.2, 0.2])
     x0_nt_probs = np.array([0.25, 0.25, 0.25, 0.25])
     x0_kappa = 3.0
-    x0 = hkymodel.pack_params(edges, x0_edge_rates, x0_nt_probs, x0_kappa)
+    x0 = hkymodel.pack_params(x0_edge_rates, x0_nt_probs, x0_kappa)
     x0 = np.array(x0)
     packed = x0
     unpacked = hkymodel.unpack_params(edges, x0)
