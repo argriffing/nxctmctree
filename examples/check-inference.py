@@ -25,54 +25,13 @@ import networkx as nx
 from scipy.optimize import minimize
 
 import nxctmctree
-from nxctmctree import gillespie
-from nxctmctree import raoteh
+from nxctmctree import gillespie, raoteh, hkymodel
 from nxctmctree.likelihood import get_trajectory_log_likelihood
 from nxctmctree.trajectory import get_node_to_tm, FullTrackSummary
 
 
-def create_rate_matrix(nt_probs, kappa):
-    """
-    Create an HKY rate matrix normalized to expected rate of 1.0.
-
-    """
-    nts = 'ACGT'
-    nt_distn = dict(zip(nts, nt_probs))
-    Q = nx.DiGraph()
-    for sa, sb in permutations(nts, 2):
-        rate = nt_distn[sb]
-        if {sa, sb} in ({'A', 'G'}, {'C', 'T'}):
-            rate *= kappa
-        Q.add_edge(sa, sb, weight=rate)
-    state_to_rate = Q.out_degree(weight='weight')
-    expected_rate = sum(nt_distn[s] * state_to_rate[s] for s in nts)
-    for sa in Q:
-        for sb in Q[sa]:
-            Q[sa][sb]['weight'] /= expected_rate
-    return Q, nt_distn
-
-
-def pack_params(edges, edge_rates, nt_probs, kappa):
-    params = np.concatenate([edge_rates, nt_probs, [kappa]])
-    log_params = np.log(params)
-    return log_params
-
-
-def unpack_params(edges, log_params):
-    params = np.exp(log_params)
-    nedges = len(edges)
-    edge_rates = params[:nedges]
-    nt_probs = params[nedges:nedges+4]
-    penalty = np.square(np.log(nt_probs.sum()))
-    nt_probs = nt_probs / nt_probs.sum()
-    kappa = params[-1]
-    Q, nt_distn = create_rate_matrix(nt_probs, kappa)
-    edge_to_rate = dict(zip(edges, edge_rates))
-    return edge_to_rate, Q, nt_distn, kappa, penalty
-
-
 def objective(T, root, edges, full_track_summary, log_params):
-    unpacked = unpack_params(edges, log_params)
+    unpacked = hkymodel.unpack_params(edges, log_params)
     edge_to_rate, Q, nt_distn, kappa, penalty = unpacked
     edge_to_Q = dict((e, Q) for e in edges)
     root_prior_distn = nt_distn
@@ -115,7 +74,7 @@ def main():
     # Initialize some more stuff before getting the gillespie samples.
     edge_to_rate = dict(zip(edges, edge_rates))
     edge_to_blen = dict((e, 1) for e in edges)
-    Q, nt_distn = create_rate_matrix(nt_probs, kappa)
+    Q, nt_distn = hkymodel.create_rate_matrix(nt_probs, kappa)
     root_prior_distn = nt_distn
     state_to_rate, state_to_distn = gillespie.expand_Q(Q)
     edge_to_Q = dict((e, Q) for e in edges)
@@ -135,7 +94,7 @@ def main():
     # leaf state patterns.
     full_track_summary = FullTrackSummary(T, root, edge_to_blen)
     pattern_to_count = defaultdict(int)
-    nsamples_gillespie = 1000000
+    nsamples_gillespie = 10000
     node_to_state_to_count = dict((v, defaultdict(int)) for v in T)
     for track in gillespie.gen_trajectories(T, root, root_prior_distn,
             edge_to_rate, edge_to_blen, edge_to_Q, nsamples_gillespie):
@@ -182,9 +141,11 @@ def main():
     x0_edge_rates = np.array([0.2, 0.2, 0.2, 0.2, 0.2])
     x0_nt_probs = np.array([0.25, 0.25, 0.25, 0.25])
     x0_kappa = 3.0
-    x0 = pack_params(edges, x0_edge_rates, x0_nt_probs, x0_kappa)
+    x0 = hkymodel.pack_params(edges, x0_edge_rates, x0_nt_probs, x0_kappa)
+    x0 = np.array(x0)
 
-    x_sim = pack_params(edges, edge_rates, nt_probs, kappa)
+    x_sim = hkymodel.pack_params(edges, edge_rates, nt_probs, kappa)
+    x_sum = np.array(x_sim)
     print('objective function value using the parameters used for sampling:')
     print(objective(T, root, edges, full_track_summary, x_sim))
     print()
@@ -194,7 +155,7 @@ def main():
 
     print(result)
     log_params = result.x
-    unpacked = unpack_params(edges, log_params)
+    unpacked = hkymodel.unpack_params(edges, log_params)
     edge_to_rate, Q, nt_distn, kappa, penalty = unpacked
     print('max likelihood estimates from sampled trajectories:')
     print('edge to rate:', edge_to_rate)
@@ -224,9 +185,10 @@ def main():
     x0_edge_rates = np.array([0.2, 0.2, 0.2, 0.2, 0.2])
     x0_nt_probs = np.array([0.25, 0.25, 0.25, 0.25])
     x0_kappa = 3.0
-    x0 = pack_params(edges, x0_edge_rates, x0_nt_probs, x0_kappa)
+    x0 = hkymodel.pack_params(edges, x0_edge_rates, x0_nt_probs, x0_kappa)
+    x0 = np.array(x0)
     packed = x0
-    unpacked = unpack_params(edges, x0)
+    unpacked = hkymodel.unpack_params(edges, x0)
     edge_to_rate, Q, nt_distn, kappa, penalty = unpacked
     edge_to_Q = dict((e, Q) for e in edges)
     root_prior_distn = nt_distn
@@ -292,7 +254,7 @@ def main():
         result = minimize(f, packed, method='L-BFGS-B')
         #print(result)
         packed = result.x
-        unpacked = unpack_params(edges, packed)
+        unpacked = hkymodel.unpack_params(edges, packed)
         edge_to_rate, Q, nt_distn, kappa, penalty = unpacked
         print('max likelihood estimates from sampled trajectories:')
         print('penalized negative log likelihood:', result.fun)
