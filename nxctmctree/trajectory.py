@@ -43,6 +43,43 @@ def get_node_to_tm(T, root, edge_to_blen):
     return node_to_tm
 
 
+class NodeStateSummary(object):
+    """
+    Record joint states for a subset of nodes in sampled trajectories.
+
+    This is the information that would be available, for example,
+    in a sequence alignment for which each aligned site corresponds
+    to a sampled trajectory and the list of extant taxa corresponds
+    to the subset of nodes for which the state is observable.
+
+    Parameters
+    ----------
+    observable_nodes : sequence
+        The ordered sequence of nodes whose joint states are to be stored.
+
+    """
+    def __init__(self, observable_nodes):
+        self.observable_nodes = observable_nodes
+        self.joint_states_to_count = dict()
+
+    def on_track(self, track, track_weight=None):
+        if track_weight is not None:
+            raise NotImplementedError
+        joint_states = tuple(track.history[v] for v in self.observable_nodes)
+        self.joint_states_to_count[joint_states] += 1
+
+    def gen_xmaps_with_repetition(self):
+        for joint_states, count in self.joint_states_to_count.items():
+            xmap = dict(zip(self.observable_nodes, joint_states))
+            yield xmap, count
+
+    def gen_xmap_count_pairs(self):
+        # An xmap maps nodes to states and includes only nodes of interest.
+        for joint_states, count in self.joint_states_to_count.items():
+            xmap = dict(zip(self.observable_nodes, joint_states))
+            yield xmap, count
+
+
 class FullTrackSummary(object):
     """
     Record everything possibly relevant for trajectory likelihood calculation.
