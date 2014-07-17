@@ -71,7 +71,8 @@ class NodeStateSummary(object):
     def gen_xmaps_with_repetition(self):
         for joint_states, count in self.joint_states_to_count.items():
             xmap = dict(zip(self.observable_nodes, joint_states))
-            yield xmap, count
+            for i in range(count):
+                yield xmap
 
     def gen_xmap_count_pairs(self):
         # An xmap maps nodes to states and includes only nodes of interest.
