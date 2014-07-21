@@ -60,7 +60,7 @@ class NodeStateSummary(object):
     """
     def __init__(self, observable_nodes):
         self.observable_nodes = observable_nodes
-        self.joint_states_to_count = dict()
+        self.joint_states_to_count = defaultdict(int)
 
     def on_track(self, track, track_weight=None):
         if track_weight is not None:
