@@ -46,11 +46,13 @@ def get_trajectory_log_likelihood(T, root,
         # transition contribution
         info = full_track_summary.edge_to_transition_to_count.get(edge, None)
         if info is None:
-            raise Exception('found an edge with no observed transitions')
-        for (sa, sb), count in info.items():
-            if count:
-                rate = edge_rate * Q[sa][sb]['weight']
-                trans_ll += count * math.log(rate)
+            # found an edge with no observed transitions
+            pass
+        else:
+            for (sa, sb), count in info.items():
+                if count:
+                    rate = edge_rate * Q[sa][sb]['weight']
+                    trans_ll += count * math.log(rate)
 
         # dwell time contribution
         info = full_track_summary.edge_to_state_to_time.get(edge, None)
