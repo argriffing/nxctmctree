@@ -16,7 +16,6 @@ import warnings
 import networkx as nx
 
 
-#FIXME copypasted from nxblink.util
 def get_node_to_tm(T, root, edge_to_blen):
     """
     Use branch lengths to compute the distance from each node to the root.
