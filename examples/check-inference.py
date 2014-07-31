@@ -217,16 +217,8 @@ def main():
         # Save the data representation constructed for each pattern.
         pattern_to_data[pattern] = node_to_data_fset
 
-        # Create and burn in the track.
-        track = None
-        for updated_track in raoteh.gen_raoteh_trajectories(
-                T, edge_to_Q, root, root_prior_distn, node_to_data_fset,
-                edge_to_blen, edge_to_rate,
-                set_of_all_states, initial_track=track, ntrajectories=nburn):
-            track = updated_track
-
         # Add the track.
-        pattern_to_track[pattern] = track
+        pattern_to_track[pattern] = None
 
     # Do some EM iterations.
     for em_iteration_index in itertools.count():
@@ -243,10 +235,11 @@ def main():
 
             # Note that the track is actually updated in-place
             # even though the track object is yielded at each iteration.
+            nburnin = 0 if idx else nburn
             for updated_track in raoteh.gen_raoteh_trajectories(
                     T, edge_to_Q, root, root_prior_distn, node_to_data_fset,
                     edge_to_blen, edge_to_rate, set_of_all_states,
-                    initial_track=track, ntrajectories=count):
+                    initial_track=track, nburnin=nburn, nsamples=count):
                 full_track_summary.on_track(updated_track)
 
         # This is the M step of EM.
