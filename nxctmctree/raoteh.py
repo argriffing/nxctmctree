@@ -29,6 +29,9 @@ from .uniformization import get_rates_out, get_omega, get_uniformized_P
 from .chunking import ChunkNodeInfo, ChunkTreeInfo, trajectory_to_chunk_tree
 from .trajectory import LightTrajectory, Event, get_node_to_tm
 
+__all__ = ['resample_states', 'get_poisson_info', 'add_poisson_events',
+           'get_feasible_blank_trajectory', 'gen_raoteh_trajectories']
+
 
 def resample_states(
         T, edge_to_P, root, root_prior_distn, node_to_data_fset,
@@ -223,15 +226,28 @@ def get_feasible_blank_trajectory(
 
 def gen_raoteh_trajectories(
         T, edge_to_Q, root, root_prior_distn, node_to_data_fset,
-        edge_to_blen, edge_to_rate,
-        set_of_all_states, initial_track=None, ntrajectories=None):
+        edge_to_blen, edge_to_rate, set_of_all_states,
+        initial_track=None, nburnin=None, nsamples=None):
     """
     Yield non-independently sampled trajectories.
 
     The first few trajectories may have low probability,
     but the probability should be positive.
 
+    Parameters
+    ----------
+    nburnin : integer, optional
+        Do this many burn-in iterations before yielding samples.
+        Default: no burn-in.
+    nsamples : integer, optional
+        Yield this many samples after burn-in.
+        Default: unlimited number of samples
+
     """
+    # Check if we asked to not do anything.
+    if not nburnin and nsamples is not None and nsamples < 1:
+        return
+
     # Extract properties of the tree.
     node_to_tm = get_node_to_tm(T, root, edge_to_blen)
     bfs_edges = list(nx.bfs_edges(T, root))
@@ -252,6 +268,7 @@ def gen_raoteh_trajectories(
         track.clear_state_labels()
 
     # Sample a bunch of tracks.
+    nburned = 0
     nsampled = 0
     while True:
 
@@ -263,13 +280,19 @@ def gen_raoteh_trajectories(
         # Clear the self-transition events.
         track.remove_self_transitions()
 
-        # Yield the track.
-        yield track
-        nsampled += 1
-
-        # Check if we have finished.
-        if ntrajectories is not None and nsampled >= ntrajectories:
-            return
+        # Do something with the track depending on the sampling phase.
+        # If we are beyond the burn-in phase then yield the track,
+        # increment the number of sampled trajectories, and check
+        # if we have finished.
+        # Otherwise we are still in the burn-in phase so just
+        # increment the burned-in count.
+        if nburnin is None or nburned > nburnin:
+            yield track
+            nsampled += 1
+            if nsamples is not None and nsampled >= nsamples:
+                return
+        else:
+            nburned += 1
 
         # Add poisson sampled events to the trajectory.
         add_poisson_events(T, root, node_to_tm, edge_to_poisson_rates, track)
