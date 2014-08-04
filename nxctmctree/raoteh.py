@@ -189,7 +189,8 @@ def add_poisson_events(T, root, node_to_tm, edge_to_poisson_rates, track):
 
 
 def get_feasible_blank_trajectory(
-        T, root, root_prior_distn, edge_to_Q, node_to_tm):
+        T, root, root_prior_distn, edge_to_Q, node_to_tm,
+        edge_to_blen, edge_to_rate):
     """
     Create a blank trajectory that should be feasible.
 
@@ -202,10 +203,18 @@ def get_feasible_blank_trajectory(
     events = dict((e, None) for e in T.edges())
     track = LightTrajectory(name='mytrack', history=history, events=events)
     for edge, Q in edge_to_Q.items():
+
+        # Initialize the list of events.
+        track.events[edge] = []
+
+        # If the edge-specific length or rate scaling factor is zero
+        # then no events are added.
+        if not edge_to_blen[edge] or not edge_to_rate[edge]:
+            continue
+
         na, nb = edge
         tma = node_to_tm[na]
         tmb = node_to_tm[nb]
-        track.events[edge] = []
 
         # Use the diameter of the transition rate matrix graph
         # to decide how many events to place on the edge.
@@ -264,7 +273,8 @@ def gen_raoteh_trajectories(
     # Otherwise prepare the provided track for state sampling.
     if initial_track is None:
         track = get_feasible_blank_trajectory(
-                T, root, root_prior_distn, edge_to_Q, node_to_tm)
+                T, root, root_prior_distn, edge_to_Q, node_to_tm,
+                edge_to_blen, edge_to_rate)
     else:
         track = initial_track
         add_poisson_events(T, root, node_to_tm, edge_to_poisson_rates, track)
