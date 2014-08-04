@@ -171,15 +171,18 @@ def add_poisson_events(T, root, node_to_tm, edge_to_poisson_rates, track):
         triples.append((tm, tmb, poisson_rates[state]))
 
         # For each triple, sample some poisson event times.
+        # Attempt to sample events on a segment only if the
+        # poisson rate on the segment is positive.
         new_events = []
         for ta, tb, poisson_rate in triples:
-            t = ta
-            while True:
-                t += expovariate(poisson_rate)
-                if t >= tb:
-                    break
-                ev = Event(track=track, tm=t, sa=None, sb=None)
-                new_events.append(ev)
+            if poisson_rate:
+                t = ta
+                while True:
+                    t += expovariate(poisson_rate)
+                    if t >= tb:
+                        break
+                    ev = Event(track=track, tm=t, sa=None, sb=None)
+                    new_events.append(ev)
 
         # Extend the list of events with the new events.
         track.events[edge].extend(new_events)
