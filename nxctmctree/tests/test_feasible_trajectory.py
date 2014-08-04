@@ -39,16 +39,12 @@ def test_feasible_trajectory():
     # Keep track of the (initial, final) state pairs.
     state_pairs = []
     for i in range(100):
-        initial_track = None
-        feasible_track = None
         for track in nxctmctree.raoteh.gen_raoteh_trajectories(
                 T, edge_to_Q, root, distn, node_to_data_fset,
                 edge_to_blen, edge_to_rate, all_states,
-                initial_track, nburnin=0, nsamples=1):
-            feasible_track = track
-        sa = feasible_track.history['a']
-        sb = feasible_track.history['b']
-        state_pairs.append((sa, sb))
+                None, nburnin=0, nsamples=1):
+            pair = tuple(track.history[v] for v in edge)
+            state_pairs.append(pair)
 
     # Check the sampled histories.
     # No history should have initial and final states that are different.
