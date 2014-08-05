@@ -5,7 +5,6 @@ from __future__ import division, print_function, absolute_import
 import networkx as nx
 
 
-#TODO replace the nxblink implementation with this function
 def partition_nodes(T, edge_to_blen, edge_to_rate):
     """
     Partition nodes of a tree.
