@@ -33,6 +33,10 @@ __all__ = ['resample_states', 'get_poisson_info', 'add_poisson_events',
            'get_feasible_blank_trajectory', 'gen_raoteh_trajectories']
 
 
+class FeasibilityError(Exception):
+    pass
+
+
 def resample_states(
         T, edge_to_P, root, root_prior_distn, node_to_data_fset,
         track, set_of_all_states):
@@ -51,7 +55,8 @@ def resample_states(
         for sn in cn_info.structural_nodes:
             fset &= node_to_data_fset[sn]
         if not fset:
-            raise Exception('chunk node has no feasible state')
+            raise FeasibilityError('chunk node has no feasible state')
+        #print('fset:', fset)
         #forbidden = set(set_of_all_states) - fset
         #if forbidden:
             #print('forbidden states at chunk node', cn, ':', forbidden)

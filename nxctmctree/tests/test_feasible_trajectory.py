@@ -15,12 +15,12 @@ from __future__ import division, print_function, absolute_import
 from itertools import permutations
 
 import networkx as nx
-from numpy.testing import assert_equal
+from numpy.testing import assert_equal, assert_
 
 import nxctmctree.raoteh
 
 
-def test_feasible_trajectory():
+def test_feasible_trajectory_without_changes():
     T = nx.DiGraph()
     edge = ('a', 'b')
     T.add_edge(*edge)
@@ -51,3 +51,48 @@ def test_feasible_trajectory():
     # All n of the states should be represented.
     assert_equal(set(state_pairs), set((s, s) for s in all_states))
 
+
+def test_impossible_feasible_trajectory():
+    T = nx.DiGraph()
+    edges = (
+            ('a', 'b'),
+            ('a', 'c'),
+            ('b', 'd'),
+            ('b', 'e'),
+            )
+    root = 'a'
+    T.add_edges_from(edges)
+    edge_to_rate = {
+            ('a', 'b') : 1,
+            ('a', 'c') : 1,
+            ('b', 'd') : 0,
+            ('b', 'e') : 0,
+            }
+    edge_to_blen = dict((e, 1) for e in edges)
+    n = 4
+    all_states = set(range(n))
+    Q = nx.DiGraph()
+    for sa, sb in permutations(range(n), 2):
+        Q.add_edge(sa, sb, weight=1)
+    edge_to_Q = dict((e, Q) for e in edges)
+    distn = dict((i, 1/n) for i in range(n))
+    node_to_data_fset = {
+            'a' : all_states,
+            'b' : all_states,
+            'c' : {0},
+            'd' : {1},
+            'e' : {2},
+            }
+
+    # No initial trajectory is feasible with this data.
+    for i in range(10):
+        try:
+            for track in nxctmctree.raoteh.gen_raoteh_trajectories(
+                    T, edge_to_Q, root, distn, node_to_data_fset,
+                    edge_to_blen, edge_to_rate, all_states,
+                    None, nburnin=0, nsamples=1):
+                pass
+        except nxctmctree.raoteh.FeasibilityError as e:
+            pass
+        else:
+            assert_(False)
